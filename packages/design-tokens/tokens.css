@@ -1,0 +1,47 @@
+/* WorkMeta AI — brand tokens
+ * Navy conveys trust and stability; teal conveys technology and clarity.
+ * These values are the single source of truth for both CSS and TypeScript.
+ */
+
+:root {
+  --wm-navy-950: #060d1a;
+  --wm-navy-900: #0b1220;
+  --wm-navy-800: #111c30;
+  --wm-navy-700: #1b2a44;
+  --wm-navy-600: #263a5c;
+
+  --wm-teal-700: #0f766e;
+  --wm-teal-600: #0d9488;
+  --wm-teal-500: #0ea5a4;
+  --wm-teal-400: #2dd4bf;
+  --wm-teal-300: #5eead4;
+
+  --wm-amber-500: #f59e0b;
+  --wm-amber-400: #fbbf24;
+
+  --wm-mist-50: #f6f9fc;
+  --wm-mist-100: #eef3f9;
+  --wm-mist-200: #dce5f0;
+  --wm-mist-300: #c3d2e4;
+
+  --wm-ink-900: #0b1220;
+  --wm-ink-700: #334155;
+  --wm-ink-500: #64748b;
+  --wm-ink-400: #94a3b8;
+
+  --wm-success-500: #10b981;
+  --wm-danger-500: #ef4444;
+
+  --wm-radius-sm: 0.5rem;
+  --wm-radius-md: 0.75rem;
+  --wm-radius-lg: 1rem;
+  --wm-radius-xl: 1.5rem;
+
+  --wm-font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+
+  --wm-shadow-card: 0 1px 2px rgb(6 13 26 / 0.04),
+    0 12px 32px -12px rgb(6 13 26 / 0.14);
+  --wm-shadow-lift: 0 2px 4px rgb(6 13 26 / 0.05),
+    0 24px 48px -20px rgb(6 13 26 / 0.22);
+}

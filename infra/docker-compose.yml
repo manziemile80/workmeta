@@ -1,0 +1,37 @@
+# WorkMeta AI — local development database
+#
+# Usage (from the repository root):
+#   docker compose -f infra/docker-compose.yml up -d
+#   docker compose -f infra/docker-compose.yml logs -f db
+#
+# The image ships PostgreSQL 16 with the pgvector extension preinstalled.
+# Initialization scripts run only when the data volume is created for the
+# first time. To re-run them: docker compose -f infra/docker-compose.yml down -v
+
+name: workmeta
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: workmeta-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-workmeta_owner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-workmeta}
+      APP_DB_USER: ${APP_DB_USER:-wm_app}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD must be set in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - workmeta_pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  workmeta_pgdata:
+    name: workmeta_pgdata

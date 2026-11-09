@@ -1,0 +1,22 @@
+{
+  "name": "workmeta-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WorkMeta AI — Your Business. Your AI. Your Way.",
+  "workspaces": [
+    "apps/web",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace @workmeta/web",
+    "build:web": "npm run build --workspace @workmeta/web",
+    "typecheck:web": "npm run typecheck --workspace @workmeta/web",
+    "preview:web": "npm run preview --workspace @workmeta/web"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}

@@ -1,0 +1,127 @@
+# WorkMeta AI — staging stack.
+#
+# Same shape as production (db/migrate/api/worker/billing-worker/web/edge)
+# but with staging secrets, localhost-only edge and longer log retention.
+# Run from the infra/ directory:
+#   cp deploy/env.staging.example .env.staging
+#   docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build
+#
+# Staging is a promotion gate: the edge binds only 127.0.0.1:18080 (HTTP).
+# Database/workers stay on the internal net. TLS is production-only
+# (see edge.conf); 443 is intentionally absent here.
+
+name: workmeta-staging
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-workmeta_stage}
+      APP_DB_USER: ${APP_DB_USER:-wm_app}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD must be set}
+    volumes:
+      - workmeta_stage_pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [private]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  migrate:
+    image: workmeta-api:${WORKMETA_VERSION:-latest}
+    environment:
+      DATABASE_MIGRATION_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-workmeta_stage}
+      DATABASE_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB:-workmeta_stage}
+    networks: [private]
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["python", "-m", "alembic", "upgrade", "head"]
+    profiles: ["ops"]
+
+  api:
+    image: workmeta-api:${WORKMETA_VERSION:-latest}
+    restart: unless-stopped
+    env_file: ./.env.staging
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB:-workmeta_stage}
+    volumes:
+      - workmeta_stage_storage:/app/var/storage
+    networks: [private, proxy]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=4)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  worker:
+    image: workmeta-api:${WORKMETA_VERSION:-latest}
+    restart: unless-stopped
+    env_file: ./.env.staging
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB:-workmeta_stage}
+    volumes:
+      - workmeta_stage_storage:/app/var/storage
+    networks: [private]
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "-m", "app.workers.ingestion"]
+
+  billing-worker:
+    image: workmeta-api:${WORKMETA_VERSION:-latest}
+    restart: unless-stopped
+    env_file: ./.env.staging
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB:-workmeta_stage}
+    volumes:
+      - workmeta_stage_storage:/app/var/storage
+    networks: [private]
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "-m", "app.workers.billing"]
+
+  web:
+    image: workmeta-web:${WORKMETA_VERSION:-latest}
+    restart: unless-stopped
+    depends_on: [api]
+    networks: [private, proxy]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  edge:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    # Staging edge is HTTP on localhost only (no TLS certs mounted).
+    # Production terminates TLS (see edge.conf). 443 is intentionally absent.
+    ports:
+      - "127.0.0.1:18080:80"
+    volumes:
+      - ./nginx/edge-stage.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [proxy]
+    depends_on: [web]
+
+networks:
+  private:
+    internal: true
+  proxy:
+
+volumes:
+  workmeta_stage_pgdata:
+    name: workmeta_stage_pgdata
+  workmeta_stage_storage:
+    name: workmeta_stage_storage

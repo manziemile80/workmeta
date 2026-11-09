@@ -1,0 +1,101 @@
+@import "tailwindcss";
+@import "@workmeta/design-tokens/tokens.css";
+
+@theme {
+  --color-navy-950: #060d1a;
+  --color-navy-900: #0b1220;
+  --color-navy-800: #111c30;
+  --color-navy-700: #1b2a44;
+  --color-navy-600: #263a5c;
+
+  --color-teal-700: #0f766e;
+  --color-teal-600: #0d9488;
+  --color-teal-500: #0ea5a4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-300: #5eead4;
+
+  --color-amber-400: #fbbf24;
+  --color-mist-50: #f6f9fc;
+  --color-mist-100: #eef3f9;
+  --color-mist-200: #dce5f0;
+  --color-mist-300: #c3d2e4;
+
+  --color-ink-900: #0b1220;
+  --color-ink-700: #334155;
+  --color-ink-500: #64748b;
+  --color-ink-400: #94a3b8;
+
+  --color-success-500: #10b981;
+  --color-danger-500: #ef4444;
+
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+
+  --radius-card: 1rem;
+  --shadow-card: 0 1px 2px rgb(6 13 26 / 0.04),
+    0 12px 32px -12px rgb(6 13 26 / 0.14);
+  --shadow-lift: 0 2px 4px rgb(6 13 26 / 0.05),
+    0 24px 48px -20px rgb(6 13 26 / 0.22);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    background-color: var(--wm-mist-50);
+    color: var(--wm-ink-900);
+    font-family: var(--wm-font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--wm-teal-300);
+    color: var(--wm-navy-950);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--wm-teal-500);
+    outline-offset: 3px;
+  }
+}
+
+@layer utilities {
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .animate-in {
+    animation: fade-up 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-in {
+      animation: none;
+    }
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

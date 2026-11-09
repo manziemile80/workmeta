@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# WorkMeta AI — repository ignore rules
+# Never commit secrets, local databases, build output or dependency folders.
+# ---------------------------------------------------------------------------
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage.xml
+.coverage
+htmlcov/
+*.egg-info/
+build/
+!apps/extension/build/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local runtime data (databases, storage, downloaded tools)
+var/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Extension/package artifacts
+*.crx
+*.zip
+apps/extension/dist/
+packages/*/dist/

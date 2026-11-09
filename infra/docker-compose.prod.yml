@@ -1,0 +1,119 @@
+# WorkMeta AI — production stack (TLS-terminating reverse proxy in front).
+#
+# Run from the infra/ directory:
+#   cp deploy/env.production.example .env.production   # fill real secrets
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# Only 80/443 are published (edge). Database and workers are on an internal
+# network. Migrations are NEVER run automatically: run
+#   docker compose -f docker-compose.prod.yml --env-file .env.production run --rm migrate
+# explicitly, after a backup, before starting new code.
+
+name: workmeta-prod
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-workmeta}
+      APP_DB_USER: ${APP_DB_USER:-wm_app}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD must be set}
+    volumes:
+      - workmeta_pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [private]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  migrate:
+    image: workmeta-api:${WORKMETA_VERSION:-latest}
+    environment:
+      DATABASE_MIGRATION_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-workmeta}
+      DATABASE_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB:-workmeta}
+    networks: [private]
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["python", "-m", "alembic", "upgrade", "head"]
+    profiles: ["ops"]
+
+  api:
+    image: workmeta-api:${WORKMETA_VERSION:-latest}
+    restart: unless-stopped
+    env_file: ./.env.production
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB:-workmeta}
+    volumes:
+      - workmeta_storage:/app/var/storage
+    networks: [private, proxy]
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+
+  worker:
+    image: workmeta-api:${WORKMETA_VERSION:-latest}
+    restart: unless-stopped
+    env_file: ./.env.production
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB:-workmeta}
+    volumes:
+      - workmeta_storage:/app/var/storage
+    networks: [private]
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "-m", "app.workers.ingestion"]
+
+  billing-worker:
+    image: workmeta-api:${WORKMETA_VERSION:-latest}
+    restart: unless-stopped
+    env_file: ./.env.production
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB:-workmeta}
+    volumes:
+      - workmeta_storage:/app/var/storage
+    networks: [private]
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "-m", "app.workers.billing"]
+
+  web:
+    image: workmeta-web:${WORKMETA_VERSION:-latest}
+    restart: unless-stopped
+    depends_on: [api]
+    networks: [private, proxy]
+
+  edge:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/edge.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/letsencrypt:ro
+    networks: [proxy]
+    depends_on: [web]
+
+networks:
+  private:
+    internal: true
+  proxy:
+
+volumes:
+  workmeta_pgdata:
+    name: workmeta_pgdata_prod
+  workmeta_storage:
+    name: workmeta_storage_prod

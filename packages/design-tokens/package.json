@@ -1,0 +1,15 @@
+{
+  "name": "@workmeta/design-tokens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WorkMeta AI design tokens — Navy & Teal",
+  "type": "module",
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    ".": "./tokens.ts"
+  },
+  "files": [
+    "tokens.css",
+    "tokens.ts"
+  ]
+}
