@@ -160,6 +160,28 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
+    @field_validator("database_url", "database_migration_url", mode="before")
+    @classmethod
+    def _normalise_db_url(cls, value: object) -> object:
+        """Make Neon connection strings asyncpg-compatible.
+
+        asyncpg rejects ``channel_binding`` and knows ``ssl`` (not ``sslmode``).
+        Neon strings carry ``?sslmode=require&channel_binding=require``; the
+        pooler endpoint otherwise works once channel binding is dropped.
+        """
+        if not isinstance(value, str):
+            return value
+        from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+        parsed = urlparse(value)
+        params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        params.pop("channel_binding", None)
+        if "sslmode" in params and "ssl" not in params:
+            params["ssl"] = params.pop("sslmode")
+        params.pop("sslmode", None)
+        query = urlencode(params, doseq=True)
+        return urlunparse(parsed._replace(query=query))
+
     @field_validator("log_level")
     @classmethod
     def _normalise_log_level(cls, value: str) -> str:
