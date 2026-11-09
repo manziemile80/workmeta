@@ -1,10 +1,10 @@
 # Release Checklist — WorkMeta AI
 
-> Updated 2026-11-12 (Stage 8B). Status per line: **PASS** (executed), **FAIL**, **BLOCKED** (missing infra/creds), **NOT TESTED** (not executed).
+> Updated 2026-11-12 (Stage 9B). Status per line: **PASS** (executed), **FAIL**, **BLOCKED** (missing infra/creds), **NOT TESTED** (not executed).
 > Local = this machine, CI = GitHub Actions, Staging = staging host, Prod = production.
 > Do not deploy production until every FAIL/BLOCKED/NOT TESTED is PASS or waived with owner + date.
 > Ubuntu host setup: `docs/UBUNTU_SETUP.md`. Deploy/verify/rollback: `docs/STAGING_DEPLOYMENT.md`.
-> Stage 8B found + fixed: edge→web `proxy` network, staging `ALLOWED_HOSTS`/CORS localhost mismatch, edge-stage 12 MB cap, api/web healthchecks.
+> Vercel frontend: `docs/VERCEL_DEPLOYMENT.md` (VITE_API_BASE_URL + CORS/ALLOWED_HOSTS).
 
 ## Staging deployment (Stage 8A)
 | Requirement | Status | Evidence | Owner / Date | Next action |

@@ -1,0 +1,120 @@
+# WorkMeta AI — Render free-tier backend (Docker, Neon PostgreSQL).
+#
+# Create the service in the Render dashboard (or connect this Blueprint):
+#   - Name: workmeta-api
+#   - Runtime: Docker  →  Dockerfile path: apps/api/Dockerfile (context: repo root)
+#   - Plan: Free
+#   - Health check path: /api/v1/health
+#
+# Neon: create a project (free), then set DATABASE_URL / DATABASE_MIGRATION_URL
+# from Neon's connection string with the schemes rewritten (see Dashboard env
+# section below - must be postgresql+asyncpg://). Run migrations once from a
+# shell (Render Shell or local `alembic upgrade head` with DATABASE_MIGRATION_URL
+# pointed at Neon) - Free has no pre-deploy hook and the container never
+# auto-migrates.
+#
+# Free limits (honest): single instance, sleeps after inactivity (cold starts),
+# ephemeral disk (STORAGE_DIR resets on restart), no background workers.
+# Uploads/ingestion stay queued until a worker runs; billing stays correct
+# because lifecycle advances lazily. See docs/RENDER_DEPLOYMENT.md.
+
+services:
+  - type: web
+    name: workmeta-api
+    plan: free
+    runtime: docker
+    # Build context is the repo root (Dockerfile COPYs apps/api/...).
+    dockerfilePath: apps/api/Dockerfile
+    # Health endpoint (liveness, no DB dependency for the check itself).
+    healthCheckPath: /api/v1/health
+    autoDeploy: false
+    envVars:
+      # Secrets live in the dashboard, never in this file.
+      - key: APP_ENV
+        value: development
+      - key: APP_NAME
+        value: WorkMeta AI API
+      - key: API_V1_PREFIX
+        value: /api/v1
+      - key: LOG_LEVEL
+        value: INFO
+      - key: CORS_ORIGINS
+        sync: false
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: MAX_REQUEST_BODY_BYTES
+        value: "12582912"
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_MIGRATION_URL
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: SESSION_TTL_DAYS
+        value: "7"
+      - key: SESSION_IDLE_HOURS
+        value: "8"
+      - key: INVITATION_TTL_DAYS
+        value: "7"
+      - key: PASSWORD_RESET_TTL_MINUTES
+        value: "60"
+      - key: BACKUP_RETENTION_DAYS
+        value: "30"
+      - key: AI_PROVIDER
+        value: openai
+      - key: AI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_CHAT_MODEL
+        value: gpt-4.1-mini
+      - key: AI_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: EMBEDDING_DIMENSIONS
+        value: "1536"
+      - key: AI_TIMEOUT_SECONDS
+        value: "60"
+      - key: AI_TEMPERATURE
+        value: "0"
+      - key: AI_MAX_RETRIES
+        value: "2"
+      - key: CHAT_MAX_OUTPUT_TOKENS
+        value: "800"
+      - key: BILLING_PROVIDER
+        value: mock
+      - key: BILLING_CURRENCY
+        value: RWF
+      - key: BILLING_TRIAL_DAYS
+        value: "14"
+      - key: BILLING_PAST_DUE_GRACE_DAYS
+        value: "7"
+      - key: BILLING_MOCK_WEBHOOK_SECRET
+        sync: false
+      - key: BILLING_CHECKOUT_CALLBACK_URL
+        sync: false
+      - key: FLUTTERWAVE_BASE_URL
+        value: https://api.flutterwave.com/v3
+      - key: FLUTTERWAVE_SECRET_KEY
+        sync: false
+      - key: FLUTTERWAVE_WEBHOOK_HASH
+        sync: false
+      - key: PAYSTACK_BASE_URL
+        value: https://api.paystack.co
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_WEBHOOK_SECRET
+        sync: false
+      - key: STORAGE_BACKEND
+        value: local
+      - key: STORAGE_DIR
+        value: /app/var/storage
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: RATE_LIMIT_LOGIN_PER_MINUTE
+        value: "60"
+      - key: RATE_LIMIT_INVITE_ACCEPT_PER_MINUTE
+        value: "60"
+      - key: RATE_LIMIT_WEBHOOK_PER_MINUTE
+        value: "300"
+      - key: RATE_LIMIT_CHAT_PER_MINUTE
+        value: "300"
