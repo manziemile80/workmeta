@@ -1,0 +1,13 @@
+# WorkMeta AI web — Vercel environment variables (set in Vercel Dashboard → Settings → Environment Variables).
+# Copy values only; never commit real secrets here.
+
+# Origin of the deployed API (no trailing slash).
+# Examples:
+#   Staging:  https://api.staging.example.com
+#   Production: https://api.example.com
+# Leave unset ("") to call /api relative to the Vercel domain (same-origin dev).
+VITE_API_BASE_URL=https://api.example.com
+
+# Backend CORS must allow the Vercel domain:
+#   CORS_ORIGINS=https://your-project.vercel.app,https://your-custom-domain.com
+# (see docs/VERCEL_DEPLOYMENT.md — no backend code change needed)

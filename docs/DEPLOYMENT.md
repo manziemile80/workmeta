@@ -1,5 +1,8 @@
 # Deployment Guide — WorkMeta AI
 
+> Frontend-only on Vercel? See `docs/VERCEL_DEPLOYMENT.md`.
+> Full Compose stack (DB + API + workers + web + edge)? See `infra/docker-compose.prod.yml`.
+
 ## Topology
 
 ```
