@@ -2,6 +2,7 @@
 
 > Free development deployment. Mock payments only — **never live keys**.
 > RLS, tenant isolation, webhook verification and authorization are unchanged.
+> Neon specifics: `docs/NEON_DATABASE_SETUP.md`. Free-tier caveats: `docs/FREE_DEPLOYMENT_LIMITATIONS.md`.
 
 ## Dashboard settings (Render)
 

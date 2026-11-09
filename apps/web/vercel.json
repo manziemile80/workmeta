@@ -5,8 +5,8 @@
   "outputDirectory": "dist",
   "installCommand": "npm ci",
   "rewrites": [
-    { "source": "/billing/checkout", "destination": "/index.html" },
-    { "source": "/((?!api/|.*\\..*).*)", "destination": "/index.html" }
+    { "source": "/api/:path*", "destination": "https://workmeta-api.onrender.com/api/:path*" },
+    { "source": "/billing/checkout", "destination": "/index.html" }
   ],
   "headers": [
     {

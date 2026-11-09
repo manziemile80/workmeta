@@ -1,33 +1,68 @@
 # Vercel Deployment — WorkMeta AI Frontend
 
-> Stage 9A. The frontend in `apps/web` is a Vite SPA (no React Router — view
-> state in `App.tsx`). Backend is **not** deployed by Vercel; the API must
-> already be reachable (staging/production host) before the frontend can
-> function. API integration is **not claimed** until `GET /api/v1/health`
-> returns 200 through the Vercel frontend origin.
+> Stage 9A + same-origin fix. Frontend is a Vite SPA (no React Router —
+> view state in `App.tsx`). Backend is **separate** (Render); the proxy
+> below makes it **same-origin**, so cookies/CSRF work without cross-site
+> `fetch` hacks. **API integration is not claimed** until `GET /api/v1/health`
+> returns 200 through the Vercel origin.
 
 ## Vercel readiness
 
 - Build: `npm run build` (`tsc --noEmit && vite build`) passes (331 kB JS, gzip 99 kB).
 - Output: `dist/` (served statically).
-- `vercel.json` (minimal): framework `vite`, `npm ci`, build `npm run build`,
-  output `dist`, rewrites for `/billing/checkout` + SPA fallback, security
-  headers. No `/api` proxy rewrite (API is a separate origin — see below).
-- No backend secrets in the bundle: only `VITE_API_BASE_URL` (public origin).
+- `vercel.json`: framework `vite`, `npm ci`, build `npm run build`, output `dist`,
+  **one** `/api/:path*` rewrite → Render host, one `/billing/checkout` → `/index.html`
+  rewrite (payment callback), security headers. No duplicate SPA catch-all.
+- Frontend requests `VITE_API_BASE_URL + '/api/...'` with
+  `credentials: include` + `X-CSRF-Token` from the `wm_csrf` cookie.
+  With `VITE_API_BASE_URL=/api` they are same-origin through the proxy —
+  `SameSite=Lax` cookies flow first-party. No insecure workarounds.
+- No backend secrets in the bundle: only `VITE_API_BASE_URL` (public path).
   Grep proof: `Select-String apps/web/src -Pattern 'localhost|127\.0\.0\.1|sk-|SECRET'`
   returns only the dev `docsUrl` fallback + network-error copy, no keys.
 
-## Vercel project settings (Dashboard → Settings)
+## Deploy (Windows PowerShell, exact)
+
+Vercel CLI is **not** installed/authenticated on this machine — deploy via
+the dashboard (recommended) or CLI after install:
+
+```powershell
+# 1. Install + login (browser opens)
+npm i -g vercel
+vercel login
+
+# 2. Link + deploy (from repo root; Root Directory apps/web is in vercel.json)
+vercel init
+#    Framework: Vite | Root: apps/web | Build: npm run build | Output: dist | Install: npm ci
+vercel link --name workmeta
+vercel deploy --prod
+#    Then set VITE_API_BASE_URL=/api in Dashboard, redeploy.
+```
+
+Dashboard alternative (recommended): Vercel → Add New → Project → import
+`manziemile80/workmeta` → Root `apps/web`, Vite preset, Build `npm run build`,
+Output `dist`, Install `npm ci` → set `VITE_API_BASE_URL=/api` → Deploy.
 
 | Setting | Value |
 |---|---|
 | Framework Preset | Vite |
-| Root Directory | `apps/web` (if the repo root is the project) — or leave blank with `vercel.json` inside `apps/web` |
+| Root Directory | `apps/web` |
 | Build Command | `npm run build` |
 | Output Directory | `dist` |
 | Install Command | `npm ci` |
 | Node.js Version | 24 |
 | Production Branch | `main` |
+| Project Name | `workmeta` → `https://workmeta.vercel.app` |
+
+## Domain `workmeta.vercel.app`
+
+- **Availability: NOT TESTED** here (no Vercel account/CLI on this machine,
+  so the name could not be checked or claimed). In the dashboard, create the
+  project with that name; Vercel reports availability on submit.
+- If taken, pick a close variant (e.g. `workmeta-app.vercel.app`) — never
+  silently change the requested name. The chosen name must be mirrored in
+  `CORS_ORIGINS`, `ALLOWED_HOSTS` (backend) and
+  `BILLING_CHECKOUT_CALLBACK_URL`.
 
 ## Frontend environment variables
 
@@ -35,47 +70,41 @@ Set in Vercel Dashboard → Settings → Environment Variables (Production + Pre
 
 | Variable | Value | Notes |
 |---|---|---|
-| `VITE_API_BASE_URL` | `https://api.example.com` (no trailing slash) | **Required.** Frontend calls `${VITE_API_BASE_URL}/api/v1/...` with `credentials: include` + `X-CSRF-Token` from the `wm_csrf` cookie. If empty, requests are relative (`/api/...`) and hit Vercel itself (404). |
+| `VITE_API_BASE_URL` | `/api` | **Required for same-origin proxy.** The `/api` prefix is rewritten to the Render backend in `vercel.json`. Never put backend secrets here. |
 
-Copy `.vercel.example` values only; never commit real secrets.
+**One manual step:** edit `apps/web/vercel.json` line
+`"destination": "https://workmeta-api.onrender.com/api/:path*"` to your real
+Render host (the placeholder is not a real hostname), commit, and redeploy.
 
-## Backend CORS for the Vercel domain
+## Backend CORS / hosts
 
-On the API host set:
+On the Render service set:
 
 ```dotenv
-CORS_ORIGINS=https://your-project.vercel.app,https://staging.example.com
-# also:
-ALLOWED_HOSTS=api.example.com,<your-vercel-host>  # TrustedHost allow-list
-APP_ENV=production
+CORS_ORIGINS=<none-or-vercel-preview>  # same-origin proxy: can be empty/no-op
+ALLOWED_HOSTS=<render-host>,<vercel-host>
+APP_ENV=development  # production would refuse mock; keep mock on free tier
+BILLING_CHECKOUT_CALLBACK_URL=https://<vercel-host>/billing/checkout
 ```
 
-Cookies (`wm_session`, `wm_csrf`) are `HttpOnly` + `SameSite=Lax` + `Secure`
-in production. Cross-site (`vercel.app` → `api.example.com`) requires CORS
-`allow_credentials=true` (already set) **and** the `X-CSRF-Token` double-submit
-(already implemented). No backend code change is needed.
+With the proxy, `CORS_ORIGINS` is not consulted for `/api` traffic (same origin),
+but keep it set for direct-API calls (mobile/extension bearer).
 
-## Checkout callback URL
+## Checkout callback
 
-Payment providers redirect to `BILLING_CHECKOUT_CALLBACK_URL` (backend
-config, e.g. `https://your-project.vercel.app/billing/checkout`). The
-`vercel.json` rewrite serves the SPA at that path; the app reads
-`?reference=` from the URL and verifies server-side. Update
-`BILLING_CHECKOUT_CALLBACK_URL` on the API host to the Vercel domain before
-enabling payments.
+`BILLING_CHECKOUT_CALLBACK_URL` must point at the Vercel domain
+`/billing/checkout`. The rewrite serves the SPA; the app reads `?reference=`
+and verifies server-side. Update only that backend var — no frontend change.
 
-## Verify (Vercel preview/production)
+## Verify
 
-1. Open the Vercel URL — the login screen renders (static, no API needed).
-2. `curl https://<vercel-url>/billing/checkout?reference=TEST` returns the
-   SPA (rewrite works) — the app shows "Verify & activate" with the reference.
-3. With `VITE_API_BASE_URL` set and the API up:
-   `curl -s https://<api>/api/v1/health` → `{"status":"ok"}`, then log in
-   through the Vercel UI (cookie + CSRF round-trip).
-4. `GET /api/v1/metrics` on the API host confirms aggregates.
+1. Open the Vercel URL — login screen renders (static, no API needed).
+2. `curl https://<vercel-url>/api/v1/health` → `{"status":"ok"}` (via proxy).
+3. Log in through the Vercel UI (cookie + CSRF round-trip via proxy).
+4. `GET /api/v1/ready` through the proxy confirms Neon.
 
 ## Remaining backend dependencies
 
-- Backend deployment (staging/prod host) + CORS/ALLOWED_HOSTS per above.
-- `AI_API_KEY`, `SESSION_SECRET`, gateway sandbox keys on the API host only.
-- Live payments stay disabled until sandbox PASS (`docs/RELEASE_CHECKLIST.md`).
+- Backend (Render) + Neon + migrations per `docs/RENDER_DEPLOYMENT.md`.
+- `VITE_API_BASE_URL=/api` deployed, vercel.json host set, CORS/ALLOWED_HOSTS set.
+- Live payments disabled until sandbox PASS.
