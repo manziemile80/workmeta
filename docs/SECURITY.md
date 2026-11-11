@@ -43,6 +43,17 @@
 - **No card data is stored.** Only provider references, amounts, currency and non-sensitive metadata.
 - Mock provider is refused in production.
 
+## Trained extensions (institutional systems)
+
+- **Per client, never global.** `extensions`, `training_materials`, `extension_procedures`, `extension_tests` and `extension_action_plans` all carry `org_id` with forced RLS and the tenant policy; the runtime role cannot read another client's training material. `products` stays global metadata — the *training* is always per client.
+- **No claim before proof.** An extension can only be published after it was analysed, has at least one **human-approved** procedure and has **passed** a test. The gate lives in the service layer, so it cannot be bypassed by calling the API.
+- **Grounded answers.** The analysis prompt and the guidance prompt treat the training material as untrusted data, never as instructions, and refuse to invent menu paths or procedures that are not in the material.
+- **Signed packages.** The published manifest is signed with Ed25519 over its canonical JSON (`EXTENSION_SIGNING_PRIVATE_KEY`); the public key travels with the package. Without a key the package is published unsigned and the console says so.
+- **Authorised actions.** The agent asks the server before acting. `auto_actions` run on their own, `confirm_actions` (submitting an application, moving money, deleting a record, sending) require the user's confirmation, `denied_actions` are refused, and a step marked sensitive always forces a confirmation. The plan records who confirmed what.
+- **Least privilege.** The runtime role gets `SELECT/INSERT/UPDATE` on the new tables and no `DELETE`: materials are archived, procedures are rejected, tests and action plans stay as history.
+
+See `docs/TRAINED_EXTENSIONS.md` for the full model, lifecycle and runtime contract.
+
 ## Secrets and logging
 
 - Secrets come only from environment (`.env`, never committed). `SESSION_SECRET`, DB passwords, `AI_API_KEY`, `FLUTTERWAVE_*` / `PAYSTACK_*` are server-side only and absent from API responses and logs.
@@ -59,4 +70,4 @@
 - No MFA yet (planned). No idle session timeout (absolute TTL only). CSRF not rotated on org switch (full session TTL).
 - Flutterwave webhook hash is static (not body-bound); mitigated by live re-verification but hash rotation is manual.
 - `GET /billing/plans` is unauthenticated by design (public pricing); `/` and `/health` fingerprint version/environment for load balancers.
-- Extension signing key and `sentry_dsn` are configured but unused.
+- `sentry_dsn` is configured but unused. The extension signing key is used to sign published extension packages; without it packages are published unsigned.

@@ -17,6 +17,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import { BrandMark } from "./components/BrandMark";
+import { ExtensionsPanel } from "./components/ExtensionsPanel";
 import {
   ApiRequestError,
   cancelSubscription,
@@ -52,7 +53,13 @@ import {
 } from "./lib/api";
 import { cn } from "./lib/cn";
 
-type View = "overview" | "pricing" | "checkout" | "payments" | "platform";
+type View =
+  | "overview"
+  | "extensions"
+  | "pricing"
+  | "checkout"
+  | "payments"
+  | "platform";
 
 const LIMIT_ROWS: {
   key: string;
@@ -198,6 +205,7 @@ export function App() {
             {(
               [
                 ["overview", "Overview"],
+                ["extensions", "Extensions"],
                 ["pricing", "Pricing"],
                 ["checkout", "Checkout"],
                 ["payments", "Payments & usage"],
@@ -256,6 +264,8 @@ export function App() {
           <EmptyOrg />
         ) : view === "overview" ? (
           <Overview orgId={orgId} />
+        ) : view === "extensions" ? (
+          <ExtensionsPanel orgId={orgId} />
         ) : view === "pricing" ? (
           <Pricing
             orgId={orgId}

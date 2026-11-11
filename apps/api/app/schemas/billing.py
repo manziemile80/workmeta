@@ -74,6 +74,7 @@ class PlanUpdate(BaseModel):
     max_assistants: int | None = Field(default=None, ge=0)
     max_documents: int | None = Field(default=None, ge=0)
     max_storage_bytes: int | None = Field(default=None, ge=0)
+    max_extensions: int | None = Field(default=None, ge=0)
     monthly_token_allowance: int | None = Field(default=None, ge=0)
     monthly_request_allowance: int | None = Field(default=None, ge=0)
     features: list[str] | None = None

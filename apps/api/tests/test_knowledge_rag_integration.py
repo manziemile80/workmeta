@@ -144,11 +144,21 @@ async def _upload(
     return response.json()
 
 
-async def _drain(ai: FakeAIProvider, storage: LocalStorage) -> int:
+async def _drain(
+    ai: FakeAIProvider, storage: LocalStorage, org_id: str | None = None
+) -> int:
+    """Process the ingestion jobs of one tenant.
+
+    The drain is scoped to the tenant so a job left behind by another test
+    cannot be claimed here: the tests share one database.
+    """
     processed = 0
     for _ in range(20):
         if not await process_next_job(
-            ai=ai, storage=storage, session_factory=SessionFactory
+            ai=ai,
+            storage=storage,
+            session_factory=SessionFactory,
+            org_id=uuid.UUID(org_id) if org_id else None,
         ):
             break
         processed += 1
@@ -235,7 +245,7 @@ async def test_grounded_answer_cites_the_uploaded_document(
     assert document["download_url"]
     assert document["sha256"]
 
-    assert await _drain(fake_ai, storage) == 1
+    assert await _drain(fake_ai, storage, org_id) == 1
 
     ready = await client.get(
         f"/api/v1/organizations/{org_id}/assistants/{assistant['id']}"
@@ -298,7 +308,7 @@ async def test_unknown_question_refuses_without_calling_the_model(
     org_id = tenant.organization["id"]
     assistant = await _create_assistant(client, tenant.token, org_id)
     await _upload(client, tenant.token, org_id, assistant["id"])
-    await _drain(fake_ai, storage)
+    await _drain(fake_ai, storage, org_id)
 
     conversation = await _conversation(
         client, tenant.token, org_id, assistant["id"]
@@ -332,7 +342,7 @@ async def test_cross_tenant_documents_and_conversations_are_invisible(
     assistant_a = await _create_assistant(client, tenant_a.token, org_a)
     await _create_assistant(client, tenant_b.token, org_b, "Other Assistant")
     document_a = await _upload(client, tenant_a.token, org_a, assistant_a["id"])
-    await _drain(fake_ai, storage)
+    await _drain(fake_ai, storage, org_a)
 
     conversation_a = await _conversation(
         client, tenant_a.token, org_a, assistant_a["id"]
@@ -414,7 +424,7 @@ async def test_raw_sql_and_worker_gate_do_not_expose_tenant_content(
 
     assistant_a = await _create_assistant(client, tenant_a.token, org_a)
     await _upload(client, tenant_a.token, org_a, assistant_a["id"])
-    await _drain(fake_ai, storage)
+    await _drain(fake_ai, storage, org_a)
 
     settings = get_settings()
     async with _engine(settings.database_url) as engine:
@@ -504,7 +514,7 @@ async def test_uploaded_content_cannot_mislead_the_extractor(
     assert reprocess.json()["error"]["code"] == "document_not_failed"
 
     # Keep the shared queue clean for later tests.
-    assert await _drain(fake_ai, storage) == 1
+    assert await _drain(fake_ai, storage, org_id) == 1
 
 
 async def test_invitation_token_cannot_read_knowledge(
@@ -606,7 +616,7 @@ async def test_failed_ingestion_rolls_back_chunks_and_retry_is_clean(
 
     # Fail after the first batch has already been written to the transaction.
     flaky = FlakyAIProvider(settings.embedding_dimensions, succeed_batches=1)
-    assert await _drain(flaky, storage) == 1
+    assert await _drain(flaky, storage, org_id) == 1
     assert await _chunk_count(org_id, document["id"]) == 0
 
     pending = await client.get(
@@ -619,7 +629,7 @@ async def test_failed_ingestion_rolls_back_chunks_and_retry_is_clean(
 
     # A retry succeeds without tripping over leftover chunks or requiring DELETE.
     await _release_ingestion(org_id)
-    assert await _drain(FakeAIProvider(settings.embedding_dimensions), storage) == 1
+    assert await _drain(FakeAIProvider(settings.embedding_dimensions), storage, org_id) == 1
     assert await _chunk_count(org_id, document["id"]) == expected_chunks
 
     ready = await client.get(
@@ -699,7 +709,7 @@ async def test_retrieval_ranks_the_relevant_document_first(
         title="Leave Policy",
         content=LEAVE_POLICY.encode(),
     )
-    assert await _drain(fake_ai, storage) == 2
+    assert await _drain(fake_ai, storage, org_id) == 2
 
     conversation = await _conversation(
         client, tenant.token, org_id, assistant["id"]
@@ -744,7 +754,7 @@ async def test_retrieval_never_mixes_embedding_models(
     org_id = tenant.organization["id"]
     assistant = await _create_assistant(client, tenant.token, org_id)
     await _upload(client, tenant.token, org_id, assistant["id"])
-    await _drain(fake_ai, storage)
+    await _drain(fake_ai, storage, org_id)
 
     # The document was embedded with the fake model. Simulate a deployment that
     # switched embedding models: its vectors must not be compared at all.
@@ -784,7 +794,7 @@ async def test_retrieval_never_crosses_assistant_boundary(
     await _upload(
         client, tenant.token, org_id, knowledge_assistant["id"]
     )
-    await _drain(fake_ai, storage)
+    await _drain(fake_ai, storage, org_id)
 
     conversation = await _conversation(
         client, tenant.token, org_id, empty_assistant["id"]
@@ -862,7 +872,7 @@ async def test_chat_uses_model_options_and_conversation_history(
         },
     )
     await _upload(client, tenant.token, org_id, assistant["id"])
-    await _drain(fake_ai, storage)
+    await _drain(fake_ai, storage, org_id)
 
     conversation = await _conversation(
         client, tenant.token, org_id, assistant["id"]

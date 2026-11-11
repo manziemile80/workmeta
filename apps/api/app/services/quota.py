@@ -25,6 +25,7 @@ from app.core.errors import AppError
 from app.models.assistant import Assistant
 from app.models.document import Document
 from app.models.enums import SubscriptionStatus
+from app.models.extension import Extension
 from app.models.subscription_plan import SubscriptionPlan
 from app.models.usage_counter import UsageCounter
 from app.services import billing
@@ -310,6 +311,45 @@ async def guard_assistant_create(
             status_code=403,
             plan=context.plan,
             limit_type="assistants",
+            used=used,
+            limit=limit,
+            requested=1,
+        )
+
+
+async def guard_extension_create(
+    session: AsyncSession, org_id: uuid.UUID
+) -> None:
+    """Enforce the plan's extension limit.
+
+    Extensions are a metered resource like assistants and documents: a client
+    can train several systems, but the plan decides how many.
+    """
+    context = await billing.ensure_subscription(session, org_id)
+    _ensure_mutations_allowed(context)
+    limit = context.plan.max_extensions
+    if limit is None:
+        return
+    await _advisory_lock(session, f"extensions:{org_id}")
+    used = int(
+        await session.scalar(
+            select(func.count(Extension.id)).where(
+                Extension.org_id == org_id,
+                Extension.status != "retired",
+            )
+        )
+        or 0
+    )
+    if used >= limit:
+        raise _quota_error(
+            code="extension_limit_reached",
+            message=(
+                "This organization has reached its extension limit. "
+                "Upgrade the plan or retire an extension to train another one."
+            ),
+            status_code=403,
+            plan=context.plan,
+            limit_type="extensions",
             used=used,
             limit=limit,
             requested=1,

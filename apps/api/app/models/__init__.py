@@ -9,6 +9,13 @@ from app.models.audit import AuditLog
 from app.models.conversation import Conversation
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
+from app.models.extension import (
+    Extension,
+    ExtensionActionPlan,
+    ExtensionProcedure,
+    ExtensionTest,
+    TrainingMaterial,
+)
 from app.models.ingestion_job import IngestionJob
 from app.models.invitation import Invitation
 from app.models.membership import Membership
@@ -31,6 +38,10 @@ __all__ = [
     "Conversation",
     "Document",
     "DocumentChunk",
+    "Extension",
+    "ExtensionActionPlan",
+    "ExtensionProcedure",
+    "ExtensionTest",
     "IngestionJob",
     "Invitation",
     "Membership",
@@ -42,6 +53,7 @@ __all__ = [
     "ProcessedWebhookEvent",
     "Product",
     "SubscriptionPlan",
+    "TrainingMaterial",
     "UsageCounter",
     "UsageEvent",
     "UserSession",

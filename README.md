@@ -33,6 +33,8 @@ one maintainable core, never from forked codebases.
 | Streaming / OCR / dashboards | ✅ Stage 4 | SSE, optional OCR, document lifecycle, usage reports |
 | Billing & quotas | ✅ Stage 5 | Plans, checkout, webhooks, quotas, billing UI, platform admin |
 | Production hardening | ✅ Stage 6 | Rate limits, TrustedHost, body caps, webhook re-verify, Docker/prod Compose, workers, metrics, backups |
+| Self-service registration | ✅ Stage 9 | Sign-up page, per-client organization, Free plan, live verification |
+| Trained extensions | ✅ Stage 10 | Per-client extensions for institutional systems: training material, extracted procedures, tests, signed package, authorised actions |
 
 Nothing is simulated in the UI: every value is read from the API.
 
@@ -334,7 +336,8 @@ workmeta/
 │   │   ├── app/
 │   │   │   ├── api/v1/      auth, orgs, members, invitations, assistants,
 │   │   │   │                documents, conversations, products, audit,
-│   │   │   │                billing, platform, usage, health (metrics)
+│   │   │   │                billing, platform, usage, health (metrics),
+│   │   │   │                extensions (training, tests, package, actions)
 │   │   │   ├── core/        config, security, logging, errors, middleware
 │   │   │   │                (rate limit, body cap, TrustedHost, metrics)
 │   │   │   ├── db/          engine, session, RLS helpers, declarative base
@@ -343,7 +346,7 @@ workmeta/
 │   │   │   ├── prompts/     versioned grounded-answer policy
 │   │   │   ├── schemas/     Pydantic request/response contracts
 │   │   │   ├── services/    auth, storage, AI provider, extraction, retrieval,
-│   │   │   │                billing, payments, quota
+│   │   │   │                billing, payments, quota, extensions
 │   │   │   └── workers/     ingestion queue worker + billing worker
 │   │   ├── alembic/         migrations (schema, RLS policies, grants)
 │   │   ├── Dockerfile       production API image
@@ -359,7 +362,8 @@ workmeta/
 │   └── postgres/init/          extensions + restricted app role
 ├── tools/scripts/           generate_env, seed_owner, backup, restore,
 │                            payment-sandbox validator
-├── docs/                    PLAN, DEPLOYMENT, SECURITY, BACKUP
+├── docs/                    PLAN, DEPLOYMENT, SECURITY, BACKUP,
+│                            TRAINED_EXTENSIONS (per-client training)
 └── .env.example
 ├── tools/
 │   └── scripts/             generate_env.py, seed_owner.py

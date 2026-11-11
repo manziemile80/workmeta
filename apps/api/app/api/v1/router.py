@@ -12,6 +12,7 @@ from app.api.v1 import (
     billing,
     conversations,
     documents,
+    extensions,
     health,
     invitations,
     memberships,
@@ -28,6 +29,7 @@ api_router.include_router(auth.router)
 api_router.include_router(products.router)
 api_router.include_router(organizations.router)
 api_router.include_router(assistants.router)
+api_router.include_router(extensions.router)
 api_router.include_router(documents.router)
 api_router.include_router(conversations.assistant_router)
 api_router.include_router(conversations.router)

@@ -92,7 +92,7 @@ async def _create_organization(
     base = organization_slug(name)
     for attempt in range(1, MAX_SLUG_ATTEMPTS + 1):
         slug = _slug_candidate(base, attempt)
-        statement = insert(Organization.__table__).values(
+        statement = insert(Organization).values(
             id=org_id,
             name=name,
             slug=slug,

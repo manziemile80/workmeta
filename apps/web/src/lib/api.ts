@@ -80,8 +80,14 @@ async function request<T>(
   const method = (options.method ?? "GET").toUpperCase();
   let payload: BodyInit | undefined;
   if (options.body !== undefined) {
-    headers["Content-Type"] = "application/json";
-    payload = JSON.stringify(options.body);
+    // FormData carries its own multipart boundary: the browser has to set the
+    // content type itself.
+    if (options.body instanceof FormData) {
+      payload = options.body;
+    } else {
+      headers["Content-Type"] = "application/json";
+      payload = JSON.stringify(options.body);
+    }
   }
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
     const csrf = readCsrfCookie();
@@ -233,6 +239,299 @@ export function switchOrganization(
     method: "POST",
     body: { org_id: orgId },
   });
+}
+
+export interface AssistantSummary {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+}
+
+export function fetchAssistants(orgId: string): Promise<AssistantSummary[]> {
+  return request<AssistantSummary[]>(`/organizations/${orgId}/assistants`);
+}
+
+// ---------------------------------------------------------------------------
+// Trained extensions
+// ---------------------------------------------------------------------------
+
+export interface Extension {
+  id: string;
+  org_id: string;
+  assistant_id: string;
+  slug: string;
+  name: string;
+  system_code: string;
+  system_name: string;
+  system_version: string;
+  target_kind: "web" | "desktop";
+  url_patterns: string[];
+  app_hints: Record<string, unknown>;
+  status: string;
+  training_status: string;
+  instructions: string | null;
+  permissions: Record<string, unknown>;
+  version: number;
+  published_at: string | null;
+  package_signature: string | null;
+  signing_key_id: string | null;
+  created_at: string;
+  updated_at: string;
+  materials_count: number;
+  procedures_count: number;
+  approved_procedures_count: number;
+  tests_count: number;
+  passed_tests_count: number;
+}
+
+export interface ExtensionCreate {
+  name: string;
+  assistant_id: string;
+  system_code: string;
+  system_name: string;
+  system_version: string;
+  target_kind?: "web" | "desktop";
+  url_patterns?: string[];
+  app_hints?: Record<string, unknown>;
+  instructions?: string | null;
+  permissions?: Record<string, unknown>;
+}
+
+export interface TrainingMaterial {
+  id: string;
+  org_id: string;
+  extension_id: string;
+  kind: "document" | "video" | "audio" | "note";
+  title: string;
+  filename: string | null;
+  mime_type: string | null;
+  size_bytes: number;
+  document_id: string | null;
+  note_text: string | null;
+  status: string;
+  extracted_text: string | null;
+  extracted_units: number | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface ProcedureStep {
+  order: number;
+  instruction: string;
+  where?: string | null;
+  value?: string | null;
+  expected_result?: string | null;
+  sensitive?: boolean;
+}
+
+export interface ExtensionProcedure {
+  id: string;
+  org_id: string;
+  extension_id: string;
+  title: string;
+  summary: string | null;
+  steps: ProcedureStep[];
+  source_material_ids: string[];
+  confidence: number;
+  status: "draft" | "approved" | "rejected";
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExtensionTest {
+  id: string;
+  org_id: string;
+  extension_id: string;
+  question: string;
+  expected_points: string[];
+  answer: string | null;
+  covered_points: string[];
+  missed_points: string[];
+  score: number;
+  outcome: "passed" | "failed" | "error";
+  created_at: string;
+}
+
+export interface ExtensionPackage {
+  extension_id: string;
+  slug: string;
+  version: number;
+  manifest: Record<string, unknown>;
+  signature: string | null;
+  signing_key_id: string | null;
+  public_key: string | null;
+  published_at: string | null;
+}
+
+export function fetchExtensions(orgId: string): Promise<Extension[]> {
+  return request<Extension[]>(`/organizations/${orgId}/extensions`);
+}
+
+export function createExtension(
+  orgId: string,
+  payload: ExtensionCreate,
+): Promise<Extension> {
+  return request<Extension>(`/organizations/${orgId}/extensions`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function updateExtension(
+  orgId: string,
+  extensionId: string,
+  payload: Partial<ExtensionCreate>,
+): Promise<Extension> {
+  return request<Extension>(
+    `/organizations/${orgId}/extensions/${extensionId}`,
+    { method: "PATCH", body: payload },
+  );
+}
+
+export function fetchMaterials(
+  orgId: string,
+  extensionId: string,
+): Promise<TrainingMaterial[]> {
+  return request<TrainingMaterial[]>(
+    `/organizations/${orgId}/extensions/${extensionId}/materials`,
+  );
+}
+
+export function addMaterialNote(
+  orgId: string,
+  extensionId: string,
+  payload: { title: string; text: string },
+): Promise<TrainingMaterial> {
+  return request<TrainingMaterial>(
+    `/organizations/${orgId}/extensions/${extensionId}/materials/notes`,
+    { method: "POST", body: payload },
+  );
+}
+
+export function uploadMaterial(
+  orgId: string,
+  extensionId: string,
+  file: File,
+  title: string,
+): Promise<TrainingMaterial> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("title", title);
+  return request<TrainingMaterial>(
+    `/organizations/${orgId}/extensions/${extensionId}/materials/upload`,
+    { method: "POST", body: form },
+  );
+}
+
+export function extractMaterial(
+  orgId: string,
+  extensionId: string,
+  materialId: string,
+): Promise<TrainingMaterial> {
+  return request<TrainingMaterial>(
+    `/organizations/${orgId}/extensions/${extensionId}/materials/${materialId}/extract`,
+    { method: "POST" },
+  );
+}
+
+export function archiveMaterial(
+  orgId: string,
+  extensionId: string,
+  materialId: string,
+): Promise<TrainingMaterial> {
+  return request<TrainingMaterial>(
+    `/organizations/${orgId}/extensions/${extensionId}/materials/${materialId}`,
+    { method: "DELETE" },
+  );
+}
+
+export function analyzeExtension(
+  orgId: string,
+  extensionId: string,
+): Promise<{
+  extension_id: string;
+  training_status: string;
+  procedures: ExtensionProcedure[];
+  analysed_materials: number;
+  analysed_characters: number;
+  message: string;
+}> {
+  return request(
+    `/organizations/${orgId}/extensions/${extensionId}/analyze`,
+    { method: "POST" },
+  );
+}
+
+export function fetchProcedures(
+  orgId: string,
+  extensionId: string,
+): Promise<ExtensionProcedure[]> {
+  return request<ExtensionProcedure[]>(
+    `/organizations/${orgId}/extensions/${extensionId}/procedures`,
+  );
+}
+
+export function updateProcedure(
+  orgId: string,
+  extensionId: string,
+  procedureId: string,
+  payload: { status: "draft" | "approved" | "rejected" },
+): Promise<ExtensionProcedure> {
+  return request<ExtensionProcedure>(
+    `/organizations/${orgId}/extensions/${extensionId}/procedures/${procedureId}`,
+    { method: "PATCH", body: payload },
+  );
+}
+
+export function fetchTests(
+  orgId: string,
+  extensionId: string,
+): Promise<ExtensionTest[]> {
+  return request<ExtensionTest[]>(
+    `/organizations/${orgId}/extensions/${extensionId}/tests`,
+  );
+}
+
+export function runExtensionTest(
+  orgId: string,
+  extensionId: string,
+  payload: { question: string; expected_points: string[] },
+): Promise<ExtensionTest> {
+  return request<ExtensionTest>(
+    `/organizations/${orgId}/extensions/${extensionId}/tests`,
+    { method: "POST", body: payload },
+  );
+}
+
+export function publishExtension(
+  orgId: string,
+  extensionId: string,
+): Promise<ExtensionPackage> {
+  return request<ExtensionPackage>(
+    `/organizations/${orgId}/extensions/${extensionId}/publish`,
+    { method: "POST" },
+  );
+}
+
+export function retireExtension(
+  orgId: string,
+  extensionId: string,
+): Promise<Extension> {
+  return request<Extension>(
+    `/organizations/${orgId}/extensions/${extensionId}/retire`,
+    { method: "POST" },
+  );
+}
+
+export function fetchPackage(
+  orgId: string,
+  extensionId: string,
+): Promise<ExtensionPackage> {
+  return request<ExtensionPackage>(
+    `/organizations/${orgId}/extensions/${extensionId}/package`,
+  );
 }
 
 // ---------------------------------------------------------------------------
