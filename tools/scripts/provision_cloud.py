@@ -53,7 +53,11 @@ VERCEL_FRONTEND = "https://workmeta.vercel.app"
 REPO_URL = "https://github.com/manziemile80/workmeta"
 APP_ROLE = "wm_app"
 PROJECT_NAME = "workmeta"
+# Name used when a service has to be created from scratch.
 SERVICE_NAME = "workmeta-api"
+# Existing services are looked up under these names (override with
+# RENDER_SERVICE_NAME). The live WorkMeta service is called "workmeta".
+SERVICE_NAMES = ("workmeta", "workmeta-api")
 
 FIXED_RENDER_ENV = {
     "APP_ENV": "development",
@@ -434,9 +438,14 @@ def render_owner(token: str) -> str:
 def render_find_service(token: str) -> dict | None:
     payload = api("GET", f"{RENDER_API}/services?limit=100", token)
     services = unwrap_list(payload, "service")
-    for service in services:
-        if service.get("name") == SERVICE_NAME:
-            return service
+    explicit = os.environ.get("RENDER_SERVICE_NAME", "").strip()
+    names = ([explicit] if explicit else []) + [
+        name for name in SERVICE_NAMES if name != explicit
+    ]
+    for name in names:
+        for service in services:
+            if service.get("name") == name:
+                return service
     return None
 
 
@@ -540,9 +549,12 @@ def render_create_or_reuse() -> dict:
         host = (service.get("serviceDetails") or {}).get("url", "").replace(
             "https://", ""
         )
-        print(f"Render: reusing service {SERVICE_NAME} ({service_id}, {host})")
+        print(
+            f"Render: reusing service {service.get('name', SERVICE_NAME)} "
+            f"({service_id}, {host})"
+        )
         if not host:
-            host = f"{SERVICE_NAME}.onrender.com"
+            host = f"{service.get('name', SERVICE_NAME)}.onrender.com"
         render_put_env_vars(token, service_id, host)
         print("Render: environment variables updated; deploying ...")
         deploy_id = render_trigger_deploy(token, service_id)
