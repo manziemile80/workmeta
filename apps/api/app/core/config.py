@@ -14,8 +14,23 @@ from typing import Annotated, Literal
 from pydantic import ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-# apps/api/app/core/config.py -> repository root
-REPO_ROOT = Path(__file__).resolve().parents[4]
+def _repo_root() -> Path:
+    """Locate the repository root without depending on a fixed depth.
+
+    A source checkout is ``<repo>/apps/api/app/core/config.py`` (five levels).
+    The container image flattens that to ``/app/app/core/config.py``, which has
+    fewer ancestors and no monorepo layout, so fall back to the directory that
+    contains ``app`` (``/app``).
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "apps" / "api" / "pyproject.toml").is_file():
+            return parent
+    parents = here.parents
+    return parents[2] if len(parents) >= 3 else here.parent
+
+
+REPO_ROOT = _repo_root()
 ENV_FILE = REPO_ROOT / ".env"
 
 
