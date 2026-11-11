@@ -3,6 +3,21 @@
 Free-tier, single-instance deployment. The Vercel frontend is already live at
 **https://workmeta.vercel.app**; this covers the missing backend and database.
 
+## Current live state (verified)
+
+| Item | Value |
+|---|---|
+| Frontend | `https://workmeta.vercel.app` (Vercel, root directory `.`) |
+| Backend | `https://workmeta.onrender.com` (Render free, Docker, Oregon) |
+| API proxy | `vercel.json` → `https://workmeta.onrender.com/api/:path*` |
+| Database | Neon, project `floral-bonus-37245332`, database **`workmeta`**, us-east-1, direct endpoint `ep-plain-tooth-bbem6e0k.c-15.us-east-1.aws.neon.tech` |
+| Runtime role | `wm_app` (NOSUPERUSER, NOBYPASSRLS, no `DELETE` grant) |
+| Migration revision | `20261112_0007 (head)` |
+| Extensions | `vector 0.8.6`, `citext 1.8` |
+
+The project's default `neondb` database belongs to another application and is
+never used by WorkMeta.
+
 ## 1. Credentials to provide
 
 | Variable | Where to create it | Why |
@@ -112,5 +127,12 @@ the Vercel UI (cookies + CSRF go through the same-origin proxy).
   `ENABLE_HSTS=true` and `ENABLE_DOCS=false`, so session cookies are `Secure`,
   HSTS is emitted and `/docs` is disabled even though the environment name is
   `development`. Live payments stay disabled until a real gateway is configured.
+- `DATABASE_MIGRATION_URL` (the owner role) is present in the Render
+  environment because the app's production validator rejects a placeholder
+  value for it. The runtime itself always connects as `wm_app`. To minimise
+  owner-credential exposure, remove that variable from Render and keep it in
+  your workstation/CI secret store - `APP_ENV=development` does not need it.
+- The Neon MCP route (`tools/scripts/neon_mcp.py`) provisions the database
+  through OAuth, so no Neon password ever has to be pasted into chat or git.
 - Free Render sleeps after inactivity (~30–60 s cold start) and has ephemeral
   storage. See `docs/FREE_DEPLOYMENT_LIMITATIONS.md`.

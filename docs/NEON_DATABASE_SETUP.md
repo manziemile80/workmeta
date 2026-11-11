@@ -3,9 +3,29 @@
 > RLS, tenant isolation and least-privilege grants are preserved on Neon.
 > Never paste connection strings into git, logs, or chat.
 
+## The live WorkMeta database (as provisioned)
+
+| Item | Value |
+|---|---|
+| Neon project | `floral-bonus-37245332` (display name `parish-db`, Vercel-integrated Neon org) |
+| Branch | `main` (`br-raspy-king-bbupoahe`) |
+| **Database** | **`workmeta`** (a dedicated database; the project's `neondb` belongs to another application and is never touched) |
+| Direct endpoint | `ep-plain-tooth-bbem6e0k.c-15.us-east-1.aws.neon.tech` (us-east-1) |
+| Runtime role | `wm_app` — NOSUPERUSER, NOBYPASSRLS, no `DELETE` grant |
+| Migration role | `neondb_owner` (owner of the `workmeta` database) |
+| Extensions | `vector 0.8.6`, `citext 1.8` |
+| Revision | `20261112_0007 (head)` |
+
+The runtime connects as `wm_app` only. `neondb_owner` is used for migrations and
+must never be the runtime role (it has `BYPASSRLS`, which would disable tenant
+isolation).
+
+> Do not confuse this with the `ep-mute-base-be5pm73v...` endpoint: that one
+> lives in a different Neon account and is **not** the WorkMeta database.
+
 ## Where to get the strings (Neon dashboard)
 
-1. Neon → project `workmeta` → **Connection string**.
+1. Neon → project → **Connection string**.
 2. Use the **direct** endpoint for both strings on the free/single-instance
    deployment. The app's asyncpg pool is 5 + 10 overflow, far below Neon Free's
    connection limit, and the direct endpoint avoids PgBouncer transaction-mode
@@ -14,6 +34,27 @@
    verify `asyncpg` prepared statements — do not assume it works.)
 3. Strings end with `?sslmode=require&channel_binding=require`. Keep `sslmode`;
    the app strips `channel_binding` and rewrites `sslmode` to `ssl` for asyncpg.
+
+## Automated provisioning (no password in chat)
+
+`tools/scripts/neon_mcp.py` provisions the database through the Neon MCP
+server, which authenticates with OAuth in the browser:
+
+```powershell
+opencode mcp add neon --url https://mcp.neon.tech/mcp --global
+opencode mcp auth neon
+apps\api\.venv\Scripts\python.exe tools\scripts\neon_mcp.py provision-env
+```
+
+It creates the `workmeta` database, the restricted `wm_app` role, and writes
+`var/neon.env` (`DATABASE_URL` + `DATABASE_MIGRATION_URL`, direct endpoint,
+never printed). Then:
+
+```powershell
+apps\api\.venv\Scripts\python.exe tools\scripts\provision_cloud.py migrate
+apps\api\.venv\Scripts\python.exe tools\scripts\provision_cloud.py seed
+apps\api\.venv\Scripts\python.exe tools\scripts\provision_cloud.py render
+```
 
 ## Required extensions (before migrations)
 
