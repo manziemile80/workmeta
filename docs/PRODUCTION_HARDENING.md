@@ -51,12 +51,42 @@ The runtime connects as `wm_app`, never as the owner:
 | `SELECT` / `INSERT` grants | 21 tables each |
 | `UPDATE` grants | 19 tables (audit log is append-only) |
 | `DELETE` grants | **0** (explicitly revoked by migration `0001`) |
-| `alembic_version` | no grant - the runtime cannot rewrite migration state |
+| `alembic_version` | **no grant** - the runtime cannot read or rewrite migration state |
 | `neondb_owner` (owner) | `BYPASSRLS=true` - **only** used by migrations, and it is no longer deployed to Render |
 
 `DATABASE_MIGRATION_URL` was removed from the Render service, so a container
 compromise cannot obtain a `BYPASSRLS` credential. Run migrations from a
 workstation or CI with `var/neon.env`.
+
+### Grant regression found and fixed (migration `20261111_0008`)
+
+Migration `0001` revoked `ALL` on `alembic_version` and `UPDATE`/`DELETE` on
+`audit_logs`. Migration `0002` then executed
+`GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public`, which silently
+re-granted exactly those privileges on every table that existed by then -
+including the migration ledger, which carries **no** row-level security. The
+effective protection had been reduced to "RLS happens to block it" instead of
+"the privilege does not exist".
+
+Migration `20261111_0008` re-applies the targeted revokes *after* any blanket
+grant. Verified against production with the runtime credentials:
+
+| Probe (as `wm_app`) | Before `0008` | After `0008` |
+|---|---|---|
+| `SELECT ... FROM alembic_version` | allowed | **denied** (`InsufficientPrivilegeError`) |
+| `UPDATE audit_logs ...` | allowed | **denied** |
+| `DELETE FROM users ...` | denied | denied |
+| `CREATE TABLE ...` | denied | denied |
+| role attributes | no superuser, no BYPASSRLS, no CREATEDB | unchanged |
+
+### Accepted residual risk: the `users` table
+
+`users` and `sessions` are intentionally **not** RLS-protected: the
+authentication flow must read them before any tenant context exists (see the
+module docstring of migration `0007`). The runtime role can therefore read the
+user directory, including Argon2id hashes. Removing that would require moving
+password verification into a `SECURITY DEFINER` function - recommended for the
+next stage, not done here because it changes the authentication architecture.
 
 ## 3. Authentication, sessions, CSRF, tenancy
 
@@ -98,7 +128,8 @@ All errors use one envelope:
 
 Render health check path is `/api/v1/health`. Logs are one JSON object per line
 (`LOG_FORMAT=json`), so Render's log search can filter on `event`, `status_code`
-or `request_id`.
+or `request_id`. Verified in production: 25 of 25 sampled log lines parsed as
+JSON, e.g. `{"event":"request_completed","level":"info","status_code":200}`.
 
 ## 6. Backups
 
@@ -119,9 +150,20 @@ or `request_id`.
 
 ## 7. Dependency posture
 
+* `pip-audit` → **no known vulnerabilities** after the fixes below.
 * `npm audit --omit=dev --audit-level=high` → 0 vulnerabilities.
-* `pip-audit` is part of CI (`.github/workflows/ci.yml`); run it locally with
-  `apps/api/.venv/Scripts/python.exe -m pip_audit`.
+
+| Package | Advisory | Fix |
+|---|---|---|
+| `cryptography 46.0.7` | PYSEC-2026-3552/3553/3554, GHSA-537c-gmf6-5ccf | pinned to `>=50,<51` (50.0.2) |
+| `pytest 8.4.2` | PYSEC-2026-1845 (dev/CI only) | pinned to `>=9.0.3,<10.0` (9.2.0) |
+
+The `cryptography` advisories concern X.509 chain verification and PKCS#7
+decryption, neither of which this application performs; the library is a
+declared dependency for the planned extension-signing feature. The pin was
+raised rather than the dependency removed, to preserve that plan. The `pytest`
+advisory is a local-user `/tmp` denial of service and only affects developer
+machines and CI.
 
 ## 8. Known residual risks
 
@@ -132,3 +174,37 @@ or `request_id`.
 4. The Neon project's `neondb` database belongs to another application; the
    WorkMeta data lives in the dedicated `workmeta` database.
 5. The Render API key was shared in a chat and must be rotated.
+6. The runtime role can read the `users` table (documented design, see §2).
+
+## 9. What "exit code 1" meant
+
+The verification command that reported `exit code 1` was the production check
+script, and the failures were **harness bugs, not application failures**:
+
+1. the CSRF header was set on the HTTP client, so the "logout without CSRF"
+   probe actually sent it (the API correctly answered 403 when it was absent);
+2. the same client-level header then broke the follow-up call;
+3. the invitation was posted to `/api/v1/auth/invitations/accept` instead of the
+   `accept_endpoint` the API returns.
+
+After fixing the harness the same script reports
+`ALL_PRODUCTION_CHECKS_PASSED`. Separately, this shell reports `Exit code 1`
+when the **last** command of a block writes to stderr (PowerShell wraps native
+stderr as `NativeCommandError`) - `vercel whoami` and `git push` both exit `0`
+on success while printing progress on stderr, and the deployment they reported
+was `Ready`.
+
+## 10. Recommended next stage
+
+1. **Move password verification into a `SECURITY DEFINER` function** so the
+   runtime role never reads `users.password_hash` (closes §2's residual risk).
+2. **Configure a real payment gateway** and flip `APP_ENV=production`
+   (§1): Flutterwave or Paystack sandbox keys, then `BILLING_PROVIDER` and the
+   `APP_ENV` switch.
+3. **Add a real AI provider key** - `AI_API_KEY` is empty, so the API answers
+   from its deterministic fake provider.
+4. **Move uploads to object storage** (`STORAGE_BACKEND=s3`): the Render free
+   tier has an ephemeral disk.
+5. **Schedule the backup** (daily `tools/scripts/backup.py` + off-site copy) and
+   keep the Neon branch snapshots as the point-in-time layer.
+6. **Rotate the Render API key** and store the new one in `var/cloud.env`.
