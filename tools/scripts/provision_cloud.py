@@ -293,12 +293,13 @@ def neon_create_or_reuse() -> dict:
         f"@{host}/{database}?sslmode=require"
     )
 
-    app_password = secrets.token_urlsafe(32)
-    setup_neon_sql(owner_url, database, app_password)
+    provided_password = os.environ.get("WM_APP_DB_PASSWORD", "").strip()
+    app_password = provided_password or secrets.token_urlsafe(32)
+    runtime_role = setup_neon_sql(owner_url, database, app_password)
 
     app_host = host
     runtime_url = (
-        f"postgresql+asyncpg://{APP_ROLE}:{urllib.parse.quote(app_password)}"
+        f"postgresql+asyncpg://{runtime_role}:{urllib.parse.quote(app_password)}"
         f"@{app_host}/{database}?sslmode=require"
     )
     migration_url = (
@@ -348,7 +349,14 @@ def neon_create_or_reuse() -> dict:
     return {"project_id": existing, "host": host, "database": database}
 
 
-def setup_neon_sql(owner_url: str, database: str, app_password: str) -> None:
+def setup_neon_sql(owner_url: str, database: str, app_password: str) -> str:
+    """Prepare extensions and the restricted runtime role.
+
+    Returns the role name the runtime must use. When the Neon owner role may
+    not create roles, the caller must have created ``wm_app`` in the Neon
+    console and supplied its password via ``WM_APP_DB_PASSWORD`` - in that
+    case the role is only verified, never altered.
+    """
     import asyncio
 
     import asyncpg
@@ -358,8 +366,9 @@ def setup_neon_sql(owner_url: str, database: str, app_password: str) -> None:
 
     parsed = urllib.parse.urlsplit(owner_url)
     context = ssl.create_default_context()
+    provided_password = os.environ.get("WM_APP_DB_PASSWORD", "").strip()
 
-    async def run() -> None:
+    async def run() -> str:
         connection = await asyncpg.connect(
             host=parsed.hostname,
             port=parsed.port or 5432,
@@ -375,16 +384,45 @@ def setup_neon_sql(owner_url: str, database: str, app_password: str) -> None:
                 "SELECT 1 FROM pg_roles WHERE rolname = $1", APP_ROLE
             )
             literal_password = app_password.replace("'", "''")
-            if not exists:
-                await connection.execute(
-                    f"CREATE ROLE {APP_ROLE} LOGIN PASSWORD '{literal_password}' "
-                    "NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS"
-                )
+            if provided_password:
+                if not exists:
+                    raise SystemExit(
+                        f"WM_APP_DB_PASSWORD is set but the role {APP_ROLE} does not "
+                        "exist. Create it in Neon -> Roles -> Create role, or unset "
+                        "WM_APP_DB_PASSWORD so the script can create it."
+                    )
+                print(f"Neon: using the existing {APP_ROLE} role as provided")
             else:
-                await connection.execute(
-                    f"ALTER ROLE {APP_ROLE} WITH LOGIN PASSWORD '{literal_password}' "
-                    "NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS"
-                )
+                try:
+                    if not exists:
+                        await connection.execute(
+                            f"CREATE ROLE {APP_ROLE} LOGIN PASSWORD '{literal_password}' "
+                            "NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS"
+                        )
+                        print(f"Neon: created runtime role {APP_ROLE}")
+                    else:
+                        await connection.execute(
+                            f"ALTER ROLE {APP_ROLE} WITH LOGIN PASSWORD "
+                            f"'{literal_password}' NOSUPERUSER NOCREATEDB "
+                            "NOCREATEROLE NOBYPASSRLS"
+                        )
+                        print(f"Neon: refreshed the password of {APP_ROLE}")
+                except asyncpg.exceptions.InsufficientPrivilegeError as exc:
+                    raise SystemExit(
+                        "The Neon owner role cannot create roles.\n"
+                        "Do one of these:\n"
+                        "  1) Neon -> project -> Roles -> Create role: name "
+                        f"{APP_ROLE}, generate a password, then put it in "
+                        "var/deploy-secrets.env as WM_APP_DB_PASSWORD=<password> "
+                        "and rerun.\n"
+                        "  2) Or run this as the Neon project owner in the SQL editor:\n"
+                        f"       CREATE ROLE {APP_ROLE} LOGIN PASSWORD "
+                        "'<generated-password>' NOSUPERUSER NOCREATEDB "
+                        "NOCREATEROLE NOBYPASSRLS;\n"
+                        "     and add the same password to var/deploy-secrets.env "
+                        "as WM_APP_DB_PASSWORD.\n"
+                        f"(original error: {exc})"
+                    ) from exc
             await connection.execute(
                 f'GRANT CONNECT ON DATABASE "{database}" TO {APP_ROLE}'
             )
@@ -392,7 +430,7 @@ def setup_neon_sql(owner_url: str, database: str, app_password: str) -> None:
         finally:
             await connection.close()
 
-    asyncio.run(run())
+    return asyncio.run(run())
 
 
 # ---------------------------------------------------------------------------
