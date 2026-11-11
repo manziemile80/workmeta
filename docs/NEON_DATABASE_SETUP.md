@@ -28,6 +28,19 @@ CREATE EXTENSION IF NOT EXISTS citext;
 `users.email` / `invitations.email` (migration `0001`). Without `citext` the
 first migration fails.
 
+## Troubleshooting
+
+| Symptom | Meaning | Fix |
+|---|---|---|
+| `/api/v1/health` → `database_configured: false` | `DATABASE_URL` is missing or still the placeholder | Set `DATABASE_URL`/`DATABASE_MIGRATION_URL` on Render and redeploy |
+| `/api/v1/ready` → 503 `database_not_configured` | Same as above (the API distinguishes *not configured* from *unreachable*) | Same as above |
+| `/api/v1/ready` → 503 `database_unavailable` | The URL is set but Postgres cannot be reached (DNS/SSL/credentials) | Check the URL host, `sslmode=require`, and that `wm_app` may `CONNECT` |
+| `/api/v1/ready` → 200 but `pgvector: false` | `vector` extension missing | `CREATE EXTENSION IF NOT EXISTS vector;` as the owner |
+| Render deploy `update_failed` + `IndexError` in `config.py` | The image layout has fewer parent directories | Fixed in `35408d6` - pull `main` and redeploy |
+
+`/api/v1/login` returns the same 503 codes while the database is unavailable; the
+response body never contains the URL, the role or any credential.
+
 ## Create the restricted runtime role (before migrations)
 
 The API must **not** connect as the Neon owner. Migrations grant privileges to
@@ -40,6 +53,12 @@ CREATE ROLE wm_app LOGIN PASSWORD '<generated-32+-char-password>'
 GRANT CONNECT ON DATABASE neondb TO wm_app;
 GRANT USAGE ON SCHEMA public TO wm_app;
 ```
+
+If the Neon owner role is not allowed to `CREATE ROLE` (Neon restricts it for
+some plans), create the role in the console instead: **Neon → project → Roles →
+Create role** (`wm_app`, generate a password), then put that exact password in
+`var/deploy-secrets.env` as `WM_APP_DB_PASSWORD=<password>`. The provisioning
+script will use it as-is and never try to alter the role.
 
 Migration `0001` then grants `SELECT/INSERT/UPDATE` on all tables, sequence
 usage, and default privileges — but never `DELETE`, `UPDATE` on `audit_logs`, or
