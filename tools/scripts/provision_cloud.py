@@ -217,8 +217,33 @@ def neon_wait_ready(token: str, project_id: str, timeout: int = 180) -> None:
     raise SystemExit("Neon project operations did not finish in time.")
 
 
+def neon_owner_url_from_parts() -> str:
+    """Build the owner URL when only the password is known.
+
+    Neon -> Connect shows the host, database, role and password separately.
+    Only the password is secret, so the user can paste just that one value.
+    """
+    password = os.environ.get("NEON_OWNER_PASSWORD", "").strip()
+    if not password:
+        return ""
+    role = os.environ.get("NEON_OWNER_ROLE", "neondb_owner").strip() or "neondb_owner"
+    database = os.environ.get("NEON_OWNER_DATABASE", "neondb").strip() or "neondb"
+    # Direct (non-pooler) endpoint of the WorkMeta Neon project. Override with
+    # NEON_OWNER_HOST if the project is recreated.
+    host = (
+        os.environ.get("NEON_OWNER_HOST", "").strip()
+        or "ep-mute-base-be5pm73v.c-9.us-east-2.aws.neon.tech"
+    )
+    return (
+        f"postgresql://{urllib.parse.quote(role)}:{urllib.parse.quote(password)}"
+        f"@{host}/{database}?sslmode=require"
+    )
+
+
 def neon_create_or_reuse() -> dict:
     owner_hint = os.environ.get("NEON_OWNER_URL", "").strip()
+    if not owner_hint:
+        owner_hint = neon_owner_url_from_parts()
     token = os.environ.get("NEON_API_KEY", "").strip()
 
     if owner_hint:

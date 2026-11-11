@@ -9,6 +9,7 @@ Free-tier, single-instance deployment. The Vercel frontend is already live at
 |---|---|---|
 | `NEON_API_KEY` | Neon Console → Account settings → API keys | Create the project, role, extensions and connection URLs |
 | `NEON_OWNER_URL` (alternative to the key) | Neon → Project → **Connect** → copy the **direct** connection string for the owner role | Reuse an existing project; the script prepares extensions and `wm_app` without creating anything |
+| `NEON_OWNER_PASSWORD` (simplest) | Neon → Project → **Connect** → the password of role `neondb_owner` | Same as above, but you only copy one value; host/database/role default to the WorkMeta project |
 | `RENDER_API_KEY` | Render Dashboard → Account Settings → API Keys | Create the Docker web service and set its env vars |
 | `NEON_ORG_ID` (optional) | Neon → Organization settings | Auto-detected for personal keys; set if the account has several orgs |
 | `RENDER_OWNER_ID` (optional) | Render → Workspace settings | Auto-detected from the API key |
@@ -26,11 +27,24 @@ Put the credentials in the gitignored file `var/cloud.env`:
 ```dotenv
 # Option A (full automation, new project):
 NEON_API_KEY=...
-# Option B (reuse the existing project/database):
+# Option B (reuse the existing project/database) - full connection string:
 NEON_OWNER_URL=postgresql://neondb_owner:<password>@ep-<name>.c-9.us-east-2.aws.neon.tech/neondb?sslmode=require
+# Option B' - only the password, everything else is defaulted:
+NEON_OWNER_PASSWORD=<password of neondb_owner>
 
 RENDER_API_KEY=...
 ```
+
+> **Headless alternative (no password needed at all):** add the Neon MCP server
+> and authenticate with OAuth, which exposes the project's SQL access:
+>
+> ```powershell
+> opencode mcp add neon --url https://mcp.neon.tech/mcp --global
+> opencode mcp auth neon
+> ```
+>
+> The browser login authorises the MCP client; the connection string can then
+> be retrieved (or the owner password rotated) without anyone pasting a secret.
 
 Do not commit this file (`var/` and `.env*` are ignored).
 
