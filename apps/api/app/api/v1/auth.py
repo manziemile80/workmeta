@@ -40,6 +40,7 @@ from app.schemas.auth import (
     PasswordResetConfirmRequest,
     PasswordResetRequest,
     PasswordResetResponse,
+    RegisterRequest,
     SwitchOrganizationRequest,
 )
 from app.services import audit
@@ -51,6 +52,7 @@ from app.services.auth import (
     revoke_all_sessions,
     revoke_session,
 )
+from app.services.registration import register_account
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -223,6 +225,53 @@ async def login(
         user=user,
         session_row=session_row,
         access_token=token if payload.kind == SessionKind.extension.value else None,
+    )
+
+
+@router.post(
+    "/register",
+    response_model=LoginResponse,
+    status_code=201,
+    summary="Create an account and sign in",
+)
+async def register(
+    payload: RegisterRequest,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> LoginResponse:
+    """Self-service sign-up.
+
+    Creates the person, their first organization and the Free subscription in
+    one transaction, then signs them in with a normal web session.
+    """
+    registration = await register_account(
+        session,
+        email=str(payload.email),
+        password=payload.password,
+        full_name=payload.full_name,
+        organization_name=payload.organization_name,
+        country=payload.country,
+        request=request,
+    )
+    user = registration.user
+    organization = registration.organization
+
+    await set_rls_context(
+        session, org_id=organization.id, user_id=user.id
+    )
+    token, session_row = await create_session(
+        session,
+        user=user,
+        org_id=organization.id,
+        kind=SessionKind.web,
+        request=request,
+    )
+    await session.commit()
+
+    set_session_cookies(response, token)
+    return await build_login_response(
+        session, user=user, session_row=session_row
     )
 
 

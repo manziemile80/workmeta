@@ -128,6 +128,8 @@ services:
         value: "true"
       - key: RATE_LIMIT_LOGIN_PER_MINUTE
         value: "60"
+      - key: RATE_LIMIT_REGISTER_PER_MINUTE
+        value: "60"
       - key: RATE_LIMIT_INVITE_ACCEPT_PER_MINUTE
         value: "60"
       - key: RATE_LIMIT_WEBHOOK_PER_MINUTE

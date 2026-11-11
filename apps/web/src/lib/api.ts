@@ -195,6 +195,29 @@ export function login(
   });
 }
 
+export interface RegisterPayload {
+  full_name: string;
+  email: string;
+  password: string;
+  organization_name: string;
+  country: string;
+}
+
+/**
+ * Create an account, its first organization and the Free subscription.
+ *
+ * The API signs the new person in, so the response carries the same session
+ * payload as `login`.
+ */
+export function registerAccount(
+  payload: RegisterPayload,
+): Promise<LoginResponse> {
+  return request<LoginResponse>("/auth/register", {
+    method: "POST",
+    body: payload,
+  });
+}
+
 export function fetchMe(): Promise<LoginResponse> {
   return request<LoginResponse>("/auth/me");
 }

@@ -13,6 +13,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Sparkles,
+  UserPlus,
   UsersRound,
 } from "lucide-react";
 import { BrandMark } from "./components/BrandMark";
@@ -41,6 +42,7 @@ import {
   login,
   logout,
   refundPlatformPayment,
+  registerAccount,
   renewSubscription,
   startTrial,
   switchOrganization,
@@ -169,7 +171,7 @@ export function App() {
   }
 
   if (me.isError || !me.data) {
-    return <LoginScreen />;
+    return <AuthScreen />;
   }
 
   const session: LoginResponse = me.data;
@@ -304,7 +306,99 @@ function Shell({ message }: { message: string }) {
   );
 }
 
-function LoginScreen() {
+type AuthMode = "login" | "register";
+
+/** Password policy enforced by the API for self-service registration. */
+const REGISTER_PASSWORD_MIN_LENGTH = 10;
+
+const COUNTRIES: { code: string; label: string }[] = [
+  { code: "RW", label: "Rwanda" },
+  { code: "BI", label: "Burundi" },
+  { code: "CD", label: "DR Congo" },
+  { code: "ET", label: "Ethiopia" },
+  { code: "GH", label: "Ghana" },
+  { code: "KE", label: "Kenya" },
+  { code: "NG", label: "Nigeria" },
+  { code: "TZ", label: "Tanzania" },
+  { code: "UG", label: "Uganda" },
+  { code: "ZA", label: "South Africa" },
+];
+
+function isRegisterPath(): boolean {
+  return window.location.pathname.replace(/\/+$/, "") === "/register";
+}
+
+function AuthScreen() {
+  const [mode, setMode] = useState<AuthMode>(() =>
+    isRegisterPath() ? "register" : "login",
+  );
+
+  // The register page is linkable, so the browser history drives the mode.
+  useEffect(() => {
+    const onPopState = () => setMode(isRegisterPath() ? "register" : "login");
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const switchMode = (next: AuthMode) => {
+    setMode(next);
+    window.history.pushState({}, "", next === "register" ? "/register" : "/");
+  };
+
+  return (
+    <div className="min-h-screen lg:grid lg:grid-cols-[420px_minmax(0,1fr)]">
+      <AuthAside />
+      <main className="flex items-center px-5 py-8 sm:px-8 lg:px-12">
+        <div className="mx-auto w-full max-w-md">
+          {mode === "login" ? (
+            <LoginForm onRegister={() => switchMode("register")} />
+          ) : (
+            <RegisterForm onSignIn={() => switchMode("login")} />
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function AuthAside() {
+  return (
+    <aside className="relative overflow-hidden bg-navy-950 px-7 py-10 text-white lg:px-11 lg:py-14">
+      <div className="pointer-events-none absolute inset-0 bg-grid opacity-70" aria-hidden="true" />
+      <div className="pointer-events-none absolute -right-28 top-16 h-72 w-72 rounded-full bg-teal-500/20 blur-3xl" aria-hidden="true" />
+      <div className="relative flex h-full flex-col">
+        <div className="flex items-center gap-3">
+          <BrandMark />
+          <div>
+            <p className="text-lg font-semibold tracking-tight">WorkMeta AI</p>
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-teal-300">
+              Billing console
+            </p>
+          </div>
+        </div>
+        <h1 className="mt-12 max-w-sm text-balance text-4xl font-semibold leading-[1.08] tracking-tight">
+          Your Business.
+          <br />
+          Your AI.
+          <br />
+          <span className="text-teal-400">Your Way.</span>
+        </h1>
+        <p className="mt-6 max-w-sm text-sm leading-relaxed text-mist-300/80">
+          Manage your subscription, usage quotas and payment history.
+          Plans are stored in the database and enforced on every AI request.
+        </p>
+        <p className="mt-auto hidden pt-10 text-xs text-mist-300/50 lg:block">
+          <span className="inline-flex items-center gap-1.5">
+            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+            Tenant-isolated billing · Card data never stored
+          </span>
+        </p>
+      </div>
+    </aside>
+  );
+}
+
+function LoginForm({ onRegister }: { onRegister: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -329,101 +423,243 @@ function LoginScreen() {
   };
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[420px_minmax(0,1fr)]">
-      <aside className="relative overflow-hidden bg-navy-950 px-7 py-10 text-white lg:px-11 lg:py-14">
-        <div className="pointer-events-none absolute inset-0 bg-grid opacity-70" aria-hidden="true" />
-        <div className="pointer-events-none absolute -right-28 top-16 h-72 w-72 rounded-full bg-teal-500/20 blur-3xl" aria-hidden="true" />
-        <div className="relative flex h-full flex-col">
-          <div className="flex items-center gap-3">
-            <BrandMark />
-            <div>
-              <p className="text-lg font-semibold tracking-tight">WorkMeta AI</p>
-              <p className="text-xs font-medium uppercase tracking-[0.18em] text-teal-300">
-                Billing console
-              </p>
-            </div>
-          </div>
-          <h1 className="mt-12 max-w-sm text-balance text-4xl font-semibold leading-[1.08] tracking-tight">
-            Your Business.
-            <br />
-            Your AI.
-            <br />
-            <span className="text-teal-400">Your Way.</span>
-          </h1>
-          <p className="mt-6 max-w-sm text-sm leading-relaxed text-mist-300/80">
-            Manage your subscription, usage quotas and payment history.
-            Plans are stored in the database and enforced on every AI request.
+    <>
+      <h2 className="text-2xl font-semibold tracking-tight text-ink-900">
+        Sign in to continue
+      </h2>
+      <p className="mt-2 text-sm text-ink-500">
+        API: {health.isSuccess ? health.data.service : "checking"} · DB:{" "}
+        {ready.isSuccess
+          ? ready.data.pgvector
+            ? "ready"
+            : "ready (pgvector missing)"
+          : ready.isError
+            ? "unavailable"
+            : "checking"}
+      </p>
+      <form onSubmit={onSubmit} className="mt-6 space-y-4">
+        <label className="block">
+          <span className="text-sm font-medium text-ink-700">Email</span>
+          <input
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="mt-1.5 w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
+            placeholder="you@company.rw"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-ink-700">Password</span>
+          <input
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="mt-1.5 w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
+            placeholder="••••••••••"
+          />
+        </label>
+        {error ? (
+          <p className="flex items-center gap-2 rounded-xl bg-danger-500/10 px-4 py-3 text-sm text-danger-500">
+            <AlertTriangle className="h-4 w-4" aria-hidden="true" /> {error}
           </p>
-          <p className="mt-auto hidden pt-10 text-xs text-mist-300/50 lg:block">
-            <span className="inline-flex items-center gap-1.5">
-              <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-              Tenant-isolated billing · Card data never stored
-            </span>
-          </p>
-        </div>
-      </aside>
+        ) : null}
+        <button
+          type="submit"
+          disabled={mutation.isPending}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-navy-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-navy-800 disabled:opacity-70"
+        >
+          {mutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <LockKeyhole className="h-4 w-4" aria-hidden="true" />
+          )}
+          Sign in
+        </button>
+      </form>
+      <p className="mt-6 text-sm text-ink-500">
+        No account yet?{" "}
+        <button
+          type="button"
+          onClick={onRegister}
+          className="font-semibold text-teal-700 hover:text-teal-600"
+        >
+          Create one
+        </button>
+      </p>
+    </>
+  );
+}
 
-      <main className="flex items-center px-5 py-8 sm:px-8 lg:px-12">
-        <div className="mx-auto w-full max-w-md">
-          <h2 className="text-2xl font-semibold tracking-tight text-ink-900">
-            Sign in to continue
-          </h2>
-          <p className="mt-2 text-sm text-ink-500">
-            API: {health.isSuccess ? health.data.service : "checking"} · DB:{" "}
-            {ready.isSuccess
-              ? ready.data.pgvector
-                ? "ready"
-                : "ready (pgvector missing)"
-              : ready.isError
-                ? "unavailable"
-                : "checking"}
+function RegisterForm({ onSignIn }: { onSignIn: () => void }) {
+  const [fullName, setFullName] = useState("");
+  const [organizationName, setOrganizationName] = useState("");
+  const [email, setEmail] = useState("");
+  const [country, setCountry] = useState("RW");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      registerAccount({
+        full_name: fullName.trim(),
+        email: email.trim(),
+        password,
+        organization_name: organizationName.trim(),
+        country,
+      }),
+    onSuccess: () => {
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: ["me"] });
+      window.location.reload();
+    },
+    onError: (e: unknown) => setError(errorMessage(e)),
+  });
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (password !== confirmPassword) {
+      setError("The two passwords do not match.");
+      return;
+    }
+    if (password.length < REGISTER_PASSWORD_MIN_LENGTH) {
+      setError(
+        `The password must be at least ${REGISTER_PASSWORD_MIN_LENGTH} characters.`,
+      );
+      return;
+    }
+    mutation.mutate();
+  };
+
+  return (
+    <>
+      <h2 className="text-2xl font-semibold tracking-tight text-ink-900">
+        Create your account
+      </h2>
+      <p className="mt-2 text-sm text-ink-500">
+        You get an organization of your own on the Free plan — upgrade whenever
+        you are ready.
+      </p>
+      <form onSubmit={onSubmit} className="mt-6 space-y-4">
+        <label className="block">
+          <span className="text-sm font-medium text-ink-700">Full name</span>
+          <input
+            type="text"
+            autoComplete="name"
+            required
+            minLength={2}
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            className="mt-1.5 w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
+            placeholder="Jane Doe"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-ink-700">Organization</span>
+          <input
+            type="text"
+            autoComplete="organization"
+            required
+            minLength={2}
+            value={organizationName}
+            onChange={(e) => setOrganizationName(e.target.value)}
+            className="mt-1.5 w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
+            placeholder="Your company"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-ink-700">Email</span>
+          <input
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="mt-1.5 w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
+            placeholder="you@company.rw"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-ink-700">Country</span>
+          <select
+            value={country}
+            onChange={(e) => setCountry(e.target.value)}
+            className="mt-1.5 w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
+          >
+            {COUNTRIES.map((item) => (
+              <option key={item.code} value={item.code}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-ink-700">Password</span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            required
+            minLength={REGISTER_PASSWORD_MIN_LENGTH}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="mt-1.5 w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
+            placeholder="••••••••••"
+          />
+          <span className="mt-1.5 block text-xs text-ink-400">
+            At least {REGISTER_PASSWORD_MIN_LENGTH} characters, with a letter
+            and a number.
+          </span>
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-ink-700">
+            Confirm password
+          </span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            required
+            minLength={REGISTER_PASSWORD_MIN_LENGTH}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            className="mt-1.5 w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
+            placeholder="••••••••••"
+          />
+        </label>
+        {error ? (
+          <p className="flex items-center gap-2 rounded-xl bg-danger-500/10 px-4 py-3 text-sm text-danger-500">
+            <AlertTriangle className="h-4 w-4" aria-hidden="true" /> {error}
           </p>
-          <form onSubmit={onSubmit} className="mt-6 space-y-4">
-            <label className="block">
-              <span className="text-sm font-medium text-ink-700">Email</span>
-              <input
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
-                placeholder="you@company.rw"
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-ink-700">Password</span>
-              <input
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
-                placeholder="••••••••••"
-              />
-            </label>
-            {error ? (
-              <p className="flex items-center gap-2 rounded-xl bg-danger-500/10 px-4 py-3 text-sm text-danger-500">
-                <AlertTriangle className="h-4 w-4" aria-hidden="true" /> {error}
-              </p>
-            ) : null}
-            <button
-              type="submit"
-              disabled={mutation.isPending}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-navy-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-navy-800 disabled:opacity-70"
-            >
-              {mutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <LockKeyhole className="h-4 w-4" aria-hidden="true" />
-              )}
-              Sign in
-            </button>
-          </form>
-        </div>
-      </main>
-    </div>
+        ) : null}
+        <button
+          type="submit"
+          disabled={mutation.isPending}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-navy-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-navy-800 disabled:opacity-70"
+        >
+          {mutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <UserPlus className="h-4 w-4" aria-hidden="true" />
+          )}
+          Create account
+        </button>
+      </form>
+      <p className="mt-6 text-sm text-ink-500">
+        Already registered?{" "}
+        <button
+          type="button"
+          onClick={onSignIn}
+          className="font-semibold text-teal-700 hover:text-teal-600"
+        >
+          Sign in
+        </button>
+      </p>
+    </>
   );
 }
 

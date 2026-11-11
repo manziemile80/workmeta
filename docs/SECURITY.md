@@ -8,10 +8,11 @@
 - Argon2id passwords (`argon2-cffi`), keyed HMAC-SHA256 token hashes (`SESSION_SECRET`), 256-bit random tokens, dummy-hash timing equalization for unknown emails.
 - Web sessions: HttpOnly `wm_session` + readable `wm_csrf` double-submit for cookie mutations; extensions use bearer tokens (`kind=extension`). `Secure` is set in production.
 - Production requires `SESSION_SECRET` ≥ 32 characters; placeholder DB passwords (`change-me`) are rejected; `ALLOWED_HOSTS=*` and wildcard CORS are rejected.
-- In-memory per-IP rate limits on login / invitation acceptance / webhooks / chat (defaults generous; tune `RATE_LIMIT_*` and the reverse proxy as the authoritative limiter).
+- In-memory per-IP rate limits on login / registration / invitation acceptance / webhooks / chat (defaults generous; tune `RATE_LIMIT_*` and the reverse proxy as the authoritative limiter).
 - **Idle timeout:** sessions die after `SESSION_IDLE_HOURS` (8) of inactivity (`sessions.last_seen_at`); absolute TTL is `SESSION_TTL_DAYS`.
 - **MFA (TOTP):** enroll/confirm/disable at `/auth/mfa/*`; login requires a fresh code (replay-protected via `mfa_last_step`). Enforcement is per-user opt-in — promote to platform-admin mandatory in the release gate.
 - **Password reset:** `/auth/password-reset/*` — single-use, hash-only, 1h expiry, revokes all sessions; no account oracle (always `ok`).
+- **Registration:** `/auth/register` — self-service sign-up that creates the person, their first organization and the Free subscription in one transaction, then signs them in. The password policy is at least 10 characters with a letter and a number; the insert policy only lets a person create an organization while they have no membership at all (migration `20261113_0009`), so one account cannot farm tenants.
 - **Suspicious login:** IP-change audits (`auth.suspicious_login`) + `failed_login_count`. No IP-based lockout (mobile users behind carrier NAT keep working); detection is audit-only.
 
 ## Authorization and tenant isolation

@@ -6,9 +6,16 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.schemas.common import LoginPassword
+from app.schemas.common import (
+    REGISTER_PASSWORD_MIN_LENGTH,
+    CountryCode,
+    CountryMixin,
+    LoginPassword,
+    PasswordMixin,
+    validate_register_password,
+)
 from app.schemas.organization import OrganizationRead
 
 
@@ -19,6 +26,45 @@ class LoginRequest(BaseModel):
     org_id: uuid.UUID | None = None
     # TOTP code when the account has MFA enabled (required then).
     mfa_code: str | None = None
+
+
+class RegisterRequest(PasswordMixin, CountryMixin, BaseModel):
+    """Self-service sign-up.
+
+    Creates the person, their first organization and the Free subscription that
+    every organization starts with, then signs them in.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    full_name: str = Field(min_length=2, max_length=160)
+    email: EmailStr
+    password: str = Field(
+        min_length=REGISTER_PASSWORD_MIN_LENGTH, max_length=128
+    )
+    organization_name: str = Field(min_length=2, max_length=160)
+    country: CountryCode = "RW"
+
+    @field_validator("full_name")
+    @classmethod
+    def _full_name_not_blank(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if len(cleaned) < 2:
+            raise ValueError("Full name must not be blank")
+        return cleaned
+
+    @field_validator("organization_name")
+    @classmethod
+    def _organization_name_not_blank(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if len(cleaned) < 2:
+            raise ValueError("Organization name must not be blank")
+        return cleaned
+
+    @field_validator("password")
+    @classmethod
+    def _password_policy(cls, value: str) -> str:
+        return validate_register_password(value)
 
 
 class PasswordResetRequest(BaseModel):

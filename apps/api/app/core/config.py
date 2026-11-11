@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     # per-process and resets on restart.
     rate_limit_enabled: bool = True
     rate_limit_login_per_minute: int = 1000
+    rate_limit_register_per_minute: int = 1000
     rate_limit_invite_accept_per_minute: int = 1000
     rate_limit_webhook_per_minute: int = 1000
     rate_limit_chat_per_minute: int = 1000
@@ -342,6 +343,7 @@ class Settings(BaseSettings):
     @field_validator(
         "max_request_body_bytes",
         "rate_limit_login_per_minute",
+        "rate_limit_register_per_minute",
         "rate_limit_invite_accept_per_minute",
         "rate_limit_webhook_per_minute",
         "rate_limit_chat_per_minute",

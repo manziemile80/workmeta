@@ -25,6 +25,7 @@ _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 # the body-size cap; authenticated per-tenant quotas live in services/quota.py.
 _SENSITIVE_LIMITS: tuple[tuple[str, str, str], ...] = (
     ("/api/v1/auth/login", "POST", "rate_limit_login_per_minute"),
+    ("/api/v1/auth/register", "POST", "rate_limit_register_per_minute"),
     ("/api/v1/invitations/accept", "POST", "rate_limit_invite_accept_per_minute"),
     ("/api/v1/billing/webhooks", "POST", "rate_limit_webhook_per_minute"),
     ("/messages", "POST", "rate_limit_chat_per_minute"),
