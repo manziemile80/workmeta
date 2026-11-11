@@ -53,3 +53,8 @@ desktop.ini
 *.zip
 apps/extension/dist/
 packages/*/dist/
+
+.vercel
+.env*
+
+!.env.example

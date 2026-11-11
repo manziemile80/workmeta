@@ -34,6 +34,10 @@ COPY apps/api/alembic ./alembic
 COPY apps/api/alembic.ini ./
 COPY apps/api/app ./app
 
+# Ephemeral local storage (STORAGE_DIR=/app/var/storage) must exist and be
+# writable by the non-root runtime user, otherwise uploads fail with EACCES.
+RUN mkdir -p /app/var/storage && chown -R app:app /app/var
+
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
