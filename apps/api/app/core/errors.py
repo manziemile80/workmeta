@@ -17,9 +17,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import (
     InterfaceError as DBInterfaceError,
+)
+from sqlalchemy.exc import (
     OperationalError as DBOperationalError,
+)
+from sqlalchemy.exc import (
     TimeoutError as DBTimeoutError,
 )
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 logger = structlog.get_logger(__name__)
 
@@ -142,6 +147,43 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "details": {"fields": fields},
                 }
             },
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _handle_http_exception(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        """Return the same envelope for framework errors (404, 405, ...).
+
+        FastAPI's default body (``{"detail": ...}``) leaks the raw reason and
+        breaks the documented error contract.
+        """
+        code = {
+            400: "bad_request",
+            401: "auth_required",
+            403: "forbidden",
+            404: "not_found",
+            405: "method_not_allowed",
+            413: "payload_too_large",
+            429: "rate_limited",
+        }.get(exc.status_code, "http_error")
+        message = exc.detail if isinstance(exc.detail, str) else code
+        logger.warning(
+            "http_error",
+            code=code,
+            status_code=exc.status_code,
+            path=request.url.path,
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": code,
+                    "message": message,
+                    "request_id": _request_id(request),
+                }
+            },
+            headers=getattr(exc, "headers", None),
         )
 
     @app.exception_handler(Exception)

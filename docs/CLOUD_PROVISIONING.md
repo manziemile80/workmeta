@@ -124,14 +124,16 @@ the Vercel UI (cookies + CSRF go through the same-origin proxy).
   statements. The asyncpg pool (5 + 10) is well within Neon Free limits.
 - `APP_ENV=development` is intentional on the free tier: `production` refuses
   `BILLING_PROVIDER=mock`. The deployment still sets `COOKIE_SECURE=true`,
-  `ENABLE_HSTS=true` and `ENABLE_DOCS=false`, so session cookies are `Secure`,
-  HSTS is emitted and `/docs` is disabled even though the environment name is
-  `development`. Live payments stay disabled until a real gateway is configured.
-- `DATABASE_MIGRATION_URL` (the owner role) is present in the Render
-  environment because the app's production validator rejects a placeholder
-  value for it. The runtime itself always connects as `wm_app`. To minimise
-  owner-credential exposure, remove that variable from Render and keep it in
-  your workstation/CI secret store - `APP_ENV=development` does not need it.
+  `ENABLE_HSTS=true`, `ENABLE_DOCS=false`, `ENFORCE_PRODUCTION_CHECKS=true`
+  and `LOG_FORMAT=json`, so the production invariants (strong session secret,
+  real database URL, explicit host/CORS allow-lists), secure cookies, HSTS,
+  structured JSON logs and hidden docs all apply even though the environment
+  name is `development`. Live payments stay disabled until a real gateway is
+  configured - see `docs/PRODUCTION_HARDENING.md`.
+- `DATABASE_MIGRATION_URL` (the owner role) is **not** deployed to Render: the
+  runtime connects as the restricted `wm_app` role and never runs Alembic, so
+  the `BYPASSRLS` owner credential stays out of the service. Run migrations
+  from a workstation or CI with `var/neon.env`.
 - The Neon MCP route (`tools/scripts/neon_mcp.py`) provisions the database
   through OAuth, so no Neon password ever has to be pasted into chat or git.
 - Free Render sleeps after inactivity (~30–60 s cold start) and has ephemeral

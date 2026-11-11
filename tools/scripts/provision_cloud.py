@@ -66,6 +66,11 @@ FIXED_RENDER_ENV = {
     "COOKIE_SECURE": "true",
     "ENABLE_HSTS": "true",
     "ENABLE_DOCS": "false",
+    # Enforce the production invariants (strong session secret, real database
+    # URL, explicit host and CORS allow-lists) even in development mode.
+    "ENFORCE_PRODUCTION_CHECKS": "true",
+    # Structured JSON logs for aggregation, independent of APP_ENV.
+    "LOG_FORMAT": "json",
     "APP_NAME": "WorkMeta AI API",
     "API_V1_PREFIX": "/api/v1",
     "LOG_LEVEL": "INFO",
@@ -464,7 +469,6 @@ def setup_neon_sql(owner_url: str, database: str, app_password: str) -> str:
 
 RENDER_ENV_KEYS = {
     "DATABASE_URL",
-    "DATABASE_MIGRATION_URL",
     "SESSION_SECRET",
     "BILLING_MOCK_WEBHOOK_SECRET",
     "CORS_ORIGINS",
@@ -472,6 +476,10 @@ RENDER_ENV_KEYS = {
     "BILLING_CHECKOUT_CALLBACK_URL",
     "AI_API_KEY",
 }
+
+# Variables that must not stay on the runtime service. The owner connection
+# string is only needed for one-off migrations from a workstation or CI.
+REMOVE_ENV_KEYS = {"DATABASE_MIGRATION_URL"}
 
 
 def load_secrets() -> dict[str, str]:
@@ -523,7 +531,10 @@ def render_env_vars(host: str) -> list[dict[str, str]]:
     merged.update(
         {
             "DATABASE_URL": database_url,
-            "DATABASE_MIGRATION_URL": migration_url,
+            # The owner URL is deliberately NOT deployed: the runtime connects
+            # as the restricted `wm_app` role and never runs Alembic. Keeping
+            # the owner credential out of the service limits the blast radius
+            # of a container compromise (the owner has BYPASSRLS).
             "SESSION_SECRET": os.environ.get("SESSION_SECRET", ""),
             "BILLING_MOCK_WEBHOOK_SECRET": os.environ.get(
                 "BILLING_MOCK_WEBHOOK_SECRET", ""
@@ -553,8 +564,12 @@ def render_put_env_vars(token: str, service_id: str, host: str) -> None:
     preserved: list[dict[str, str]] = []
     for item in unwrap_list(existing, "envVar"):
         key = item.get("key")
-        if key and key not in desired:
-            preserved.append({"key": key, "value": item.get("value", "")})
+        if not key or key in desired:
+            continue
+        if key in REMOVE_ENV_KEYS:
+            print(f"Render: removing {key} from the runtime service")
+            continue
+        preserved.append({"key": key, "value": item.get("value", "")})
     payload = [{"key": key, "value": value} for key, value in desired.items()]
     payload.extend(preserved)
     api(

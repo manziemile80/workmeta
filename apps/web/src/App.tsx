@@ -156,6 +156,14 @@ export function App() {
     retry: false,
   });
 
+  // Used only to decide whether the API documentation link is worth showing.
+  const health = useQuery({
+    queryKey: ["health"],
+    queryFn: fetchHealth,
+    retry: false,
+    staleTime: 60_000,
+  });
+
   if (me.isPending) {
     return <Shell message="Loading your session…" />;
   }
@@ -269,14 +277,18 @@ export function App() {
 
         <footer className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-mist-200 pt-5 text-xs text-ink-400">
           <p>© {new Date().getFullYear()} WorkMeta AI · Your Business. Your AI. Your Way.</p>
-          <a
-            href={docsUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 font-semibold text-ink-700 hover:text-teal-700"
-          >
-            API docs <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-          </a>
+          {health.data?.docs_enabled ? (
+            <a
+              href={docsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 font-semibold text-ink-700 hover:text-teal-700"
+            >
+              API docs <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+            </a>
+          ) : (
+            <span>API status: {health.data?.status ?? "checking"}</span>
+          )}
         </footer>
       </main>
     </div>
@@ -358,7 +370,13 @@ function LoginScreen() {
           </h2>
           <p className="mt-2 text-sm text-ink-500">
             API: {health.isSuccess ? health.data.service : "checking"} · DB:{" "}
-            {ready.isSuccess ? "ready" : ready.isError ? "unavailable" : "checking"}
+            {ready.isSuccess
+              ? ready.data.pgvector
+                ? "ready"
+                : "ready (pgvector missing)"
+              : ready.isError
+                ? "unavailable"
+                : "checking"}
           </p>
           <form onSubmit={onSubmit} className="mt-6 space-y-4">
             <label className="block">

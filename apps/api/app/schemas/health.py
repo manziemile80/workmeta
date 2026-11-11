@@ -15,6 +15,9 @@ class HealthResponse(BaseModel):
     uptime_seconds: float = Field(ge=0)
     # Operational signal only - never contains the URL or credentials.
     database_configured: bool = True
+    # Whether the interactive API documentation is served (it is not in
+    # production). The web client uses this to hide a dead documentation link.
+    docs_enabled: bool = False
 
 
 class ReadyResponse(BaseModel):

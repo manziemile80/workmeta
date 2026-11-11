@@ -41,6 +41,7 @@ async def health() -> HealthResponse:
         environment=settings.app_env,
         uptime_seconds=round(time.monotonic() - _STARTED_AT, 3),
         database_configured=_database_configured(settings),
+        docs_enabled=settings.docs_enabled,
     )
 
 

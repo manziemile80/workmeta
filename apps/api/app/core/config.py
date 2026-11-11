@@ -14,6 +14,7 @@ from typing import Annotated, Literal
 from pydantic import ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+
 def _repo_root() -> Path:
     """Locate the repository root without depending on a fixed depth.
 
@@ -63,6 +64,13 @@ class Settings(BaseSettings):
     cookie_secure: bool | None = None
     enable_docs: bool | None = None
     enable_hsts: bool | None = None
+    # Enforce the production invariants (strong session secret, no placeholder
+    # database URL, explicit host and CORS allow-lists) even when APP_ENV is
+    # ``development``. Useful where the environment name cannot be flipped yet.
+    enforce_production_checks: bool | None = None
+    # Log rendering: ``auto`` (JSON in production, console otherwise), ``json``
+    # or ``console``.
+    log_format: Literal["auto", "json", "console"] = "auto"
     # Total JSON/body size cap. Uploads have their own per-file limit as well.
     max_request_body_bytes: int = 12 * 1024 * 1024
 
@@ -356,6 +364,13 @@ class Settings(BaseSettings):
         return self.app_env == "production"
 
     @property
+    def production_checks_enforced(self) -> bool:
+        """True when the production invariants must hold, whatever APP_ENV says."""
+        if self.enforce_production_checks is not None:
+            return self.enforce_production_checks
+        return self.is_production
+
+    @property
     def secure_cookies(self) -> bool:
         if self.cookie_secure is not None:
             return self.cookie_secure
@@ -375,22 +390,29 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _production_secrets(self) -> Settings:
-        if self.app_env != "production":
+        strict = self.is_production
+        if not (strict or self.production_checks_enforced):
             return self
         if len(self.session_secret.strip()) < 32:
             raise ValueError(
                 "SESSION_SECRET must be at least 32 characters in production"
             )
-        for name, url in (
-            ("DATABASE_URL", self.database_url),
-            ("DATABASE_MIGRATION_URL", self.database_migration_url),
-        ):
-            if "change-me" in url:
-                raise ValueError(f"{name} still contains the placeholder password")
-        if self.billing_provider == "mock":
-            raise ValueError(
-                "BILLING_PROVIDER=mock is not allowed in production"
-            )
+        if "change-me" in self.database_url:
+            raise ValueError("DATABASE_URL still contains the placeholder password")
+        if strict:
+            # The owner URL is mandatory when running in production mode.
+            if "change-me" in self.database_migration_url:
+                raise ValueError(
+                    "DATABASE_MIGRATION_URL still contains the placeholder password"
+                )
+            if self.billing_provider == "mock":
+                raise ValueError(
+                    "BILLING_PROVIDER=mock is not allowed in production"
+                )
+        elif "change-me" in self.database_migration_url:
+            # Enforced-but-not-production mode: an unset migration URL is fine,
+            # the runtime service never executes Alembic.
+            pass
         if not self.allowed_hosts or self.allowed_hosts == ["*"]:
             raise ValueError(
                 "ALLOWED_HOSTS must list the public API hostnames in production"

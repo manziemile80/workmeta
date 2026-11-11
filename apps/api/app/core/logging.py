@@ -32,7 +32,9 @@ def configure_logging(settings: Settings) -> None:
     ]
 
     renderer: structlog.types.Processor
-    if settings.is_production:
+    if settings.log_format == "json" or (
+        settings.log_format == "auto" and settings.is_production
+    ):
         renderer = structlog.processors.JSONRenderer()
     else:
         renderer = structlog.dev.ConsoleRenderer(colors=sys.stdout.isatty())

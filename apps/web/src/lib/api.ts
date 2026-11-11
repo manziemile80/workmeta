@@ -1,6 +1,16 @@
 /** Typed API client for the WorkMeta AI backend. */
 
-const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "";
+/**
+ * Root of the backend API, including the version segment.
+ *
+ * In production the frontend is served from the same origin as the API and
+ * Vercel proxies `/api/*` to Render, so the default `/api/v1` works without
+ * any configuration. `VITE_API_BASE_URL` can point somewhere else (for
+ * example `http://127.0.0.1:8000/api/v1` during local development).
+ */
+const API_BASE_URL: string = (
+  import.meta.env.VITE_API_BASE_URL ?? "/api/v1"
+).replace(/\/+$/, "");
 
 export interface HealthResponse {
   status: "ok";
@@ -8,6 +18,8 @@ export interface HealthResponse {
   version: string;
   environment: string;
   uptime_seconds: number;
+  database_configured: boolean;
+  docs_enabled: boolean;
 }
 
 export interface ReadyResponse {
@@ -119,14 +131,19 @@ async function request<T>(
 }
 
 export const fetchHealth = (): Promise<HealthResponse> =>
-  request<HealthResponse>("/api/v1/health");
+  request<HealthResponse>("/health");
 
 export const fetchReady = (): Promise<ReadyResponse> =>
-  request<ReadyResponse>("/api/v1/ready");
+  request<ReadyResponse>("/ready");
 
-export const docsUrl = API_BASE_URL
-  ? `${API_BASE_URL}/docs`
-  : "http://localhost:8000/docs";
+/**
+ * Location of the interactive API documentation.
+ *
+ * The docs are served from the backend root (not below `/api/v1`) and are
+ * disabled in production, so the client only shows the link when
+ * `/api/v1/health` reports `docs_enabled`.
+ */
+export const docsUrl: string = `${API_BASE_URL.replace(/\/api\/v1$/, "")}/docs`;
 
 // ---------------------------------------------------------------------------
 // Auth
