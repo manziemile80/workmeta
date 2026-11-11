@@ -176,7 +176,27 @@ machines and CI.
 5. The Render API key was shared in a chat and must be rotated.
 6. The runtime role can read the `users` table (documented design, see §2).
 
-## 9. What "exit code 1" meant
+## 9. How to re-run this audit
+
+```powershell
+# 1. Backend tests against an isolated database (mirrors CI)
+apps\api\.venv\Scripts\python.exe tools\scripts\run_tests.py   # or: pytest -q
+# 2. Lint / types / build
+cd apps\api; .\.venv\Scripts\python.exe -m ruff check .
+cd ..\..; cmd /c "npm run typecheck:web" ; cmd /c "npm run build:web"
+# 3. Dependency audits
+cd apps\api; .\.venv\Scripts\python.exe -m pip_audit
+cd ..\..; cmd /c "npm audit --omit=dev --audit-level=high"
+# 4. Live deployment (frontend -> proxy -> API -> database)
+apps\api\.venv\Scripts\python.exe tools\scripts\verify_production.py
+# 5. Database least privilege (connects as wm_app)
+apps\api\.venv\Scripts\python.exe tools\scripts\verify_privileges.py
+# 6. Backup + restore drill
+apps\api\.venv\Scripts\python.exe tools\scripts\backup.py
+apps\api\.venv\Scripts\python.exe tools\scripts\backup.py --verify-only
+```
+
+## 10. What "exit code 1" meant
 
 The verification command that reported `exit code 1` was the production check
 script, and the failures were **harness bugs, not application failures**:
@@ -194,7 +214,7 @@ stderr as `NativeCommandError`) - `vercel whoami` and `git push` both exit `0`
 on success while printing progress on stderr, and the deployment they reported
 was `Ready`.
 
-## 10. Recommended next stage
+## 11. Recommended next stage
 
 1. **Move password verification into a `SECURITY DEFINER` function** so the
    runtime role never reads `users.password_hash` (closes §2's residual risk).
