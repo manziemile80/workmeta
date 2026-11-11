@@ -209,34 +209,33 @@ def neon_wait_ready(token: str, project_id: str, timeout: int = 180) -> None:
 
 
 def neon_create_or_reuse() -> dict:
-    token = require("NEON_API_KEY")
-    existing = neon_project_id(token)
-    if existing:
-        # Reuse requires the owner connection string: the API does not return
-        # role passwords for an already-created project.
-        owner_hint = os.environ.get("NEON_OWNER_URL", "").strip()
-        if not owner_hint:
-            raise SystemExit(
-                f"Neon project {PROJECT_NAME} already exists ({existing}). "
-                "Set NEON_OWNER_URL to its owner connection string in var/cloud.env "
-                "so extensions/roles can be prepared, or delete the unused project."
-            )
-        print(f"Neon: reusing project {PROJECT_NAME} ({existing})")
+    owner_hint = os.environ.get("NEON_OWNER_URL", "").strip()
+    token = os.environ.get("NEON_API_KEY", "").strip()
+
+    if owner_hint:
+        # Owner-URL mode: no API key needed. The full Postgres URL already
+        # contains the password; extensions and the wm_app role are prepared
+        # with it, and the password used for the runtime role is generated.
         parsed = urllib.parse.urlsplit(owner_hint)
-        project_payload = {
-            "project": {"id": existing, "name": PROJECT_NAME},
-            "connection_uris": [
-                {
-                    "connection_parameters": {
-                        "role": urllib.parse.unquote(parsed.username or ""),
-                        "password": urllib.parse.unquote(parsed.password or ""),
-                        "database": parsed.path.lstrip("/"),
-                        "host": parsed.hostname,
-                    }
-                }
-            ],
-        }
+        role = urllib.parse.unquote(parsed.username or "")
+        password = urllib.parse.unquote(parsed.password or "")
+        database = parsed.path.lstrip("/")
+        host = parsed.hostname or ""
+        if not all([role, password, database, host]):
+            raise SystemExit(
+                "NEON_OWNER_URL must be a full postgresql://user:password@host/db URL."
+            )
+        existing = os.environ.get("NEON_PROJECT_ID", "") or f"owner-url:{host}"
+        print(f"Neon: using existing database {database} on {host}")
     else:
+        token = require("NEON_API_KEY")
+        existing = neon_project_id(token)
+        if existing:
+            raise SystemExit(
+                f"Neon project {PROJECT_NAME} already exists ({existing}) and the API "
+                "cannot return its owner password. Set NEON_OWNER_URL to its owner "
+                "connection string in var/cloud.env and rerun."
+            )
         org_id = neon_pick_org(token)
         body = {
             "project": {
@@ -249,39 +248,36 @@ def neon_create_or_reuse() -> dict:
         print(f"Neon: creating project {PROJECT_NAME} in {body['project']['region_id']} ...")
         project_payload = api("POST", f"{NEON_API}/projects", token, body)
         existing = project_payload["project"]["id"]
+        neon_wait_ready(token, existing)
 
-    neon_wait_ready(token, existing)
+        role = None
+        database = None
+        password = None
+        host = None
+        if isinstance(project_payload, dict):
+            roles = project_payload.get("roles") or []
+            databases = project_payload.get("databases") or []
+            endpoints = project_payload.get("endpoints") or []
+            uris = project_payload.get("connection_uris") or []
+            if uris:
+                params = uris[0].get("connection_parameters", {})
+                role = params.get("role")
+                database = params.get("database")
+                password = params.get("password")
+                host = params.get("host")
+            if roles and not password:
+                role = role or roles[0].get("name")
+                password = password or roles[0].get("password")
+            if databases and not database:
+                database = database or databases[0].get("name")
+            if endpoints and not host:
+                host = endpoints[0].get("host")
 
-    # The create response carries connection URIs/roles; a GET may not. Recreate
-    # the owner URL from the project's roles + endpoint when needed.
-    role = None
-    database = None
-    password = None
-    host = None
-    if isinstance(project_payload, dict):
-        roles = project_payload.get("roles") or []
-        databases = project_payload.get("databases") or []
-        endpoints = project_payload.get("endpoints") or []
-        uris = project_payload.get("connection_uris") or []
-        if uris:
-            params = uris[0].get("connection_parameters", {})
-            role = params.get("role")
-            database = params.get("database")
-            password = params.get("password")
-            host = params.get("host")
-        if roles and not password:
-            role = role or roles[0].get("name")
-            password = password or roles[0].get("password")
-        if databases and not database:
-            database = database or databases[0].get("name")
-        if endpoints and not host:
-            host = endpoints[0].get("host")
-
-    if not all([role, database, password, host]):
-        raise SystemExit(
-            "Neon did not return a usable connection URI (role/password/host). "
-            "Create the project in the Neon console and set NEON_OWNER_URL, then rerun."
-        )
+        if not all([role, database, password, host]):
+            raise SystemExit(
+                "Neon did not return a usable connection URI (role/password/host). "
+                "Create the project in the Neon console and set NEON_OWNER_URL, then rerun."
+            )
 
     owner_url = (
         f"postgresql://{urllib.parse.quote(role)}:{urllib.parse.quote(password)}"

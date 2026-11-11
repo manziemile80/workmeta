@@ -8,18 +8,27 @@ Free-tier, single-instance deployment. The Vercel frontend is already live at
 | Variable | Where to create it | Why |
 |---|---|---|
 | `NEON_API_KEY` | Neon Console → Account settings → API keys | Create the project, role, extensions and connection URLs |
+| `NEON_OWNER_URL` (alternative to the key) | Neon → Project → **Connect** → copy the **direct** connection string for the owner role | Reuse an existing project; the script prepares extensions and `wm_app` without creating anything |
 | `RENDER_API_KEY` | Render Dashboard → Account Settings → API Keys | Create the Docker web service and set its env vars |
 | `NEON_ORG_ID` (optional) | Neon → Organization settings | Auto-detected for personal keys; set if the account has several orgs |
 | `RENDER_OWNER_ID` (optional) | Render → Workspace settings | Auto-detected from the API key |
+
+> The Neon **Auth** URL (`...neonauth....neon.tech/.../.well-known/jwks.json`)
+> is not a database endpoint. Use the Postgres host from **Connect**:
+> `...@ep-<name>.c-9.us-east-2.aws.neon.tech/neondb?sslmode=require`.
 
 **Render must already have the GitHub App authorized for
 `manziemile80/workmeta`.** Without that, service creation fails with a
 GitHub-connection error; authorize it at Render → Account Settings → GitHub.
 
-Put the keys in the gitignored file `var/cloud.env`:
+Put the credentials in the gitignored file `var/cloud.env`:
 
 ```dotenv
+# Option A (full automation, new project):
 NEON_API_KEY=...
+# Option B (reuse the existing project/database):
+NEON_OWNER_URL=postgresql://neondb_owner:<password>@ep-<name>.c-9.us-east-2.aws.neon.tech/neondb?sslmode=require
+
 RENDER_API_KEY=...
 ```
 
