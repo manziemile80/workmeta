@@ -25,6 +25,12 @@ _STARTED_AT = time.monotonic()
 REQUEST_METRICS: dict[tuple[str, str, str], tuple[int, float]] = {}
 
 
+def _database_configured(settings) -> bool:
+    """True when a real (non-placeholder) database URL is configured."""
+    url = (settings.database_url or "").strip()
+    return bool(url) and "change-me" not in url
+
+
 @router.get("/health", response_model=HealthResponse, summary="Liveness probe")
 async def health() -> HealthResponse:
     """Return OK when the API process is running (does not touch the database)."""
@@ -34,6 +40,7 @@ async def health() -> HealthResponse:
         version=settings.app_version,
         environment=settings.app_env,
         uptime_seconds=round(time.monotonic() - _STARTED_AT, 3),
+        database_configured=_database_configured(settings),
     )
 
 
@@ -43,6 +50,15 @@ async def ready(
 ) -> ReadyResponse:
     """Verify that the API can serve traffic: database reachable, pgvector status."""
     settings = get_settings()
+    if not _database_configured(settings):
+        # Distinguish "no database configured" from "database unreachable" so
+        # operators get an actionable error. No URL or credential is exposed.
+        logger.error("database_not_configured")
+        raise AppError(
+            "The database connection is not configured on this deployment.",
+            status_code=503,
+            code="database_not_configured",
+        )
     try:
         await ping_database(session)
         vector_ready = await has_pgvector(session)

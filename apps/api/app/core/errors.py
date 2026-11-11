@@ -147,18 +147,29 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
         if _is_infrastructure_failure(exc):
+            from app.core.config import get_settings  # noqa: PLC0415 - avoids a cycle
+
+            settings = get_settings()
+            url = (settings.database_url or "").strip()
+            if not url or "change-me" in url:
+                code = "database_not_configured"
+                message = "The database connection is not configured on this deployment."
+            else:
+                code = "database_unavailable"
+                message = "The database is not reachable. Please try again shortly."
             logger.exception(
                 "infrastructure_unavailable",
                 path=request.url.path,
                 method=request.method,
                 error_type=type(exc).__name__,
+                code=code,
             )
             return JSONResponse(
                 status_code=503,
                 content={
                     "error": {
-                        "code": "database_unavailable",
-                        "message": "The database is not reachable. Please try again shortly.",
+                        "code": code,
+                        "message": message,
                         "request_id": _request_id(request),
                     }
                 },

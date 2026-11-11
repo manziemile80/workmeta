@@ -13,6 +13,8 @@ class HealthResponse(BaseModel):
     version: str
     environment: str
     uptime_seconds: float = Field(ge=0)
+    # Operational signal only - never contains the URL or credentials.
+    database_configured: bool = True
 
 
 class ReadyResponse(BaseModel):
