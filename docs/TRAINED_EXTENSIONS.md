@@ -259,3 +259,8 @@ operation cannot be completed before the confirmation exists
 - Video reading needs `ffmpeg` and OCR; audio transcription needs a
   transcription model. Both are optional capabilities with honest failure
   messages, not silent gaps.
+- The analysis and the guidance need a real model. A deployment without
+  `AI_API_KEY` runs the deterministic offline provider, which extracts nothing:
+  the extension stays untrained and the publishing gate keeps refusing. That is
+  the intended behaviour — WorkMeta would rather publish nothing than publish
+  something it has not understood.

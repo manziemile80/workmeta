@@ -644,16 +644,24 @@ async def analyze_extension(
         actor_role=context.role,
     )
     await session.commit()
+    if not procedures:
+        message = (
+            "No procedures were found in the training material. Add the manual, "
+            "the screenshots or the written steps and analyse again — an "
+            "extension is never published with an empty procedure set."
+        )
+    else:
+        message = (
+            f"Extracted {len(procedures)} procedures from {materials} materials. "
+            "Review and approve them before publishing."
+        )
     return ExtractionResult(
         extension_id=extension.id,
         training_status=extension.training_status,
         procedures=[ProcedureRead.model_validate(item) for item in procedures],
         analysed_materials=materials,
         analysed_characters=characters,
-        message=(
-            f"Extracted {len(procedures)} procedures from {materials} materials. "
-            "Review and approve them before publishing."
-        ),
+        message=message,
     )
 
 
