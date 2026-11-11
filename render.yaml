@@ -32,6 +32,15 @@ services:
       # Secrets live in the dashboard, never in this file.
       - key: APP_ENV
         value: development
+      # Free tier keeps development (production rejects BILLING_PROVIDER=mock)
+      # but the service is HTTPS-only behind the Vercel proxy, so enable the
+      # HTTPS hardening that development would otherwise leave off.
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: ENABLE_HSTS
+        value: "true"
+      - key: ENABLE_DOCS
+        value: "false"
       - key: APP_NAME
         value: WorkMeta AI API
       - key: API_V1_PREFIX

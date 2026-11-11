@@ -28,7 +28,7 @@ def _cookie_max_age() -> int:
 
 
 def set_session_cookies(response: Response, token: str) -> None:
-    secure = get_settings().is_production
+    secure = get_settings().secure_cookies
     max_age = _cookie_max_age()
     response.set_cookie(
         key=SESSION_COOKIE,

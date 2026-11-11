@@ -57,6 +57,11 @@ SERVICE_NAME = "workmeta-api"
 
 FIXED_RENDER_ENV = {
     "APP_ENV": "development",
+    # Served over HTTPS (Vercel proxy); development mode is only kept because
+    # production rejects BILLING_PROVIDER=mock on the free tier.
+    "COOKIE_SECURE": "true",
+    "ENABLE_HSTS": "true",
+    "ENABLE_DOCS": "false",
     "APP_NAME": "WorkMeta AI API",
     "API_V1_PREFIX": "/api/v1",
     "LOG_LEVEL": "INFO",

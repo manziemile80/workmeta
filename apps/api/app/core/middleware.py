@@ -212,7 +212,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("Cross-Origin-Resource-Policy", "same-site")
         # HSTS is only meaningful (and only valid) over HTTPS; the reverse
         # proxy terminates TLS and should also emit it.
-        if settings.is_production:
+        if settings.hsts_enabled:
             response.headers.setdefault(
                 "Strict-Transport-Security",
                 "max-age=31536000; includeSubDomains",

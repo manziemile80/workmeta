@@ -94,9 +94,9 @@ the Vercel UI (cookies + CSRF go through the same-origin proxy).
   deployment; the pooler's transaction mode can break asyncpg prepared
   statements. The asyncpg pool (5 + 10) is well within Neon Free limits.
 - `APP_ENV=development` is intentional on the free tier: `production` refuses
-  `BILLING_PROVIDER=mock`. Live payments stay disabled until sandbox PASS.
-- In development the session cookies are `Secure=False` but still `HttpOnly` +
-  `SameSite=Lax` over HTTPS. Set `APP_ENV=production` (with a real gateway) to
-  turn `Secure` on.
+  `BILLING_PROVIDER=mock`. The deployment still sets `COOKIE_SECURE=true`,
+  `ENABLE_HSTS=true` and `ENABLE_DOCS=false`, so session cookies are `Secure`,
+  HSTS is emitted and `/docs` is disabled even though the environment name is
+  `development`. Live payments stay disabled until a real gateway is configured.
 - Free Render sleeps after inactivity (~30–60 s cold start) and has ephemeral
   storage. See `docs/FREE_DEPLOYMENT_LIMITATIONS.md`.

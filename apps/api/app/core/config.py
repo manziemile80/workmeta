@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     # Host allow-list for TrustedHostMiddleware. "*" allows any host (dev/tests
     # and direct-IP deployments); production should list the public hostnames.
     allowed_hosts: Annotated[list[str], NoDecode] = ["*"]
+    # Explicit HTTPS hardening overrides. ``None`` keeps the environment-derived
+    # default (on only for APP_ENV=production). Free-tier staging runs as
+    # ``development`` because BILLING_PROVIDER=mock is rejected in production,
+    # yet it is still served over HTTPS, so these can be switched on directly.
+    cookie_secure: bool | None = None
+    enable_docs: bool | None = None
+    enable_hsts: bool | None = None
     # Total JSON/body size cap. Uploads have their own per-file limit as well.
     max_request_body_bytes: int = 12 * 1024 * 1024
 
@@ -349,7 +356,21 @@ class Settings(BaseSettings):
         return self.app_env == "production"
 
     @property
+    def secure_cookies(self) -> bool:
+        if self.cookie_secure is not None:
+            return self.cookie_secure
+        return self.is_production
+
+    @property
+    def hsts_enabled(self) -> bool:
+        if self.enable_hsts is not None:
+            return self.enable_hsts
+        return self.is_production
+
+    @property
     def docs_enabled(self) -> bool:
+        if self.enable_docs is not None:
+            return self.enable_docs
         return self.app_env != "production"
 
     @model_validator(mode="after")
