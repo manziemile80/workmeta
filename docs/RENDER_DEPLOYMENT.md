@@ -20,6 +20,8 @@
 
 **Startup command:** handled by the image (`bash -c "uvicorn ... --port ${PORT:-8000}"`).
 Render injects `$PORT`. The API listens on `0.0.0.0:$PORT`.
+The image creates `/app/var/storage` owned by the non-root `app` user, so
+uploads work without root; the disk is still ephemeral on Free.
 
 - Build: `docker build -f apps/api/Dockerfile -t workmeta-api .` (repo root context).
 - Run (local check): `docker run -e PORT=8000 -e APP_ENV=development -p 8000:8000 workmeta-api`.

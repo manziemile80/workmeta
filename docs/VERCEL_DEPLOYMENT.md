@@ -5,14 +5,24 @@
 > below makes it **same-origin**, so cookies/CSRF work without cross-site
 > `fetch` hacks. **API integration is not claimed** until `GET /api/v1/health`
 > returns 200 through the Vercel origin.
+>
+> **Deployed 2026-11-11:** project `workmeta` (team `manziemile1-5955s-projects`),
+> production alias **https://workmeta.vercel.app** (HTTP 200). API proxy still
+> points at the placeholder Render host until the backend service exists.
 
 ## Vercel readiness
 
-- Build: `npm run build` (`tsc --noEmit && vite build`) passes (331 kB JS, gzip 99 kB).
-- Output: `dist/` (served statically).
-- `vercel.json`: framework `vite`, `npm ci`, build `npm run build`, output `dist`,
-  **one** `/api/:path*` rewrite → Render host, one `/billing/checkout` → `/index.html`
-  rewrite (payment callback), security headers. No duplicate SPA catch-all.
+- Build: `npm run build:web` (`tsc --noEmit && vite build` in the workspace) passes (331.9 kB JS, gzip 99.5 kB).
+- Output: `apps/web/dist/` (served statically).
+- `vercel.json` lives at the **repo root** because the Vercel project's Root
+  Directory is `.` (the CLI uploads the directory it runs in; deploying from
+  `apps/web` omitted the root lockfile and broke `npm ci`).
+  It sets framework `vite`, `npm ci`, build `npm run build:web`, output
+  `apps/web/dist`, **one** `/api/:path*` rewrite → Render host, one
+  `/billing/checkout` → `/index.html` rewrite (payment callback), and security
+  headers. No duplicate SPA catch-all.
+- `.vercelignore` excludes `var/`, `.env*`, `node_modules`, `.venv`, caches and
+  build output so local database dumps/secrets are never uploaded.
 - Frontend requests `VITE_API_BASE_URL + '/api/...'` with
   `credentials: include` + `X-CSRF-Token` from the `wm_csrf` cookie.
   With `VITE_API_BASE_URL=/api` they are same-origin through the proxy —
@@ -23,32 +33,27 @@
 
 ## Deploy (Windows PowerShell, exact)
 
-Vercel CLI is **not** installed/authenticated on this machine — deploy via
-the dashboard (recommended) or CLI after install:
+The project is linked and authenticated on this machine (CLI v65.12.1). Deploy
+from the **repo root**, never from `apps/web`:
 
 ```powershell
-# 1. Install + login (browser opens)
-npm i -g vercel
-vercel login
-
-# 2. Link + deploy (from repo root; Root Directory apps/web is in vercel.json)
-vercel init
-#    Framework: Vite | Root: apps/web | Build: npm run build | Output: dist | Install: npm ci
-vercel link --name workmeta
-vercel deploy --prod
-#    Then set VITE_API_BASE_URL=/api in Dashboard, redeploy.
+vercel link --yes --project workmeta
+vercel env add VITE_API_BASE_URL --environment production,preview --value /api --no-sensitive --yes
+vercel deploy --prod --yes
 ```
 
-Dashboard alternative (recommended): Vercel → Add New → Project → import
-`manziemile80/workmeta` → Root `apps/web`, Vite preset, Build `npm run build`,
-Output `dist`, Install `npm ci` → set `VITE_API_BASE_URL=/api` → Deploy.
+The project is also connected to `github.com/manziemile80/workmeta`, so pushes
+to `main` auto-deploy. Dashboard alternative: Vercel → Add New → Project →
+import `manziemile80/workmeta` → **Root Directory `.`**, Vite preset, Build
+`npm run build:web`, Output `apps/web/dist`, Install `npm ci` → set
+`VITE_API_BASE_URL=/api` → Deploy.
 
 | Setting | Value |
 |---|---|
 | Framework Preset | Vite |
-| Root Directory | `apps/web` |
-| Build Command | `npm run build` |
-| Output Directory | `dist` |
+| Root Directory | `.` (repo root) |
+| Build Command | `npm run build:web` |
+| Output Directory | `apps/web/dist` |
 | Install Command | `npm ci` |
 | Node.js Version | 24 |
 | Production Branch | `main` |
@@ -56,13 +61,11 @@ Output `dist`, Install `npm ci` → set `VITE_API_BASE_URL=/api` → Deploy.
 
 ## Domain `workmeta.vercel.app`
 
-- **Availability: NOT TESTED** here (no Vercel account/CLI on this machine,
-  so the name could not be checked or claimed). In the dashboard, create the
-  project with that name; Vercel reports availability on submit.
-- If taken, pick a close variant (e.g. `workmeta-app.vercel.app`) — never
-  silently change the requested name. The chosen name must be mirrored in
-  `CORS_ORIGINS`, `ALLOWED_HOSTS` (backend) and
-  `BILLING_CHECKOUT_CALLBACK_URL`.
+- **Claimed 2026-11-11** by project `workmeta`; the production alias returns
+  HTTP 200. Keep the name mirrored in `CORS_ORIGINS`, `ALLOWED_HOSTS`
+  (backend) and `BILLING_CHECKOUT_CALLBACK_URL`.
+- If you ever rename it, update those backend vars — never silently change the
+  requested name.
 
 ## Frontend environment variables
 
@@ -72,8 +75,8 @@ Set in Vercel Dashboard → Settings → Environment Variables (Production + Pre
 |---|---|---|
 | `VITE_API_BASE_URL` | `/api` | **Required for same-origin proxy.** The `/api` prefix is rewritten to the Render backend in `vercel.json`. Never put backend secrets here. |
 
-**One manual step:** edit `apps/web/vercel.json` line
-`"destination": "https://workmeta-api.onrender.com/api/:path*"` to your real
+**One manual step:** edit `vercel.json` at the **repo root** line
+`"destination": "https://workmeta-api.onrender.com/api/:path*"` to the real
 Render host (the placeholder is not a real hostname), commit, and redeploy.
 
 ## Backend CORS / hosts
