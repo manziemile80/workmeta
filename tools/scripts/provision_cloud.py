@@ -472,16 +472,55 @@ def render_env_vars(host: str) -> list[dict[str, str]]:
     return [{"key": key, "value": value} for key, value in merged.items()]
 
 
-def render_wait_deploy(token: str, service_id: str, timeout: int = 1200) -> None:
+def render_put_env_vars(token: str, service_id: str, host: str) -> None:
+    """Replace the env set without dropping unknown keys or duplicating any."""
+    desired = {item["key"]: item["value"] for item in render_env_vars(host)}
+    existing = api(
+        "GET", f"{RENDER_API}/services/{service_id}/env-vars?limit=100", token
+    )
+    preserved: list[dict[str, str]] = []
+    for item in unwrap_list(existing, "envVar"):
+        key = item.get("key")
+        if key and key not in desired:
+            preserved.append({"key": key, "value": item.get("value", "")})
+    payload = [{"key": key, "value": value} for key, value in desired.items()]
+    payload.extend(preserved)
+    api(
+        "PUT",
+        f"{RENDER_API}/services/{service_id}/env-vars",
+        token,
+        payload,
+    )
+
+
+def render_trigger_deploy(token: str, service_id: str) -> str:
+    """Start a deploy so updated env vars take effect; return its id."""
+    deploy = api(
+        "POST", f"{RENDER_API}/services/{service_id}/deploys", token, {}
+    )
+    return (deploy or {}).get("id", "")
+
+
+def render_wait_deploy(
+    token: str, service_id: str, deploy_id: str | None = None, timeout: int = 1200
+) -> None:
     deadline = time.time() + timeout
     last = None
     failed = {"build_failed", "pre_deploy_failed", "canceled", "deactivated"}
     while time.time() < deadline:
-        payload = api(
-            "GET", f"{RENDER_API}/services/{service_id}/deploys?limit=1", token
-        )
-        deploys = unwrap_list(payload, "deploy")
-        status = deploys[0].get("status") if deploys else "pending"
+        if deploy_id:
+            payload = api(
+                "GET",
+                f"{RENDER_API}/services/{service_id}/deploys/{deploy_id}",
+                token,
+            )
+            status = (payload or {}).get("status")
+        else:
+            payload = api(
+                "GET", f"{RENDER_API}/services/{service_id}/deploys?limit=1", token
+            )
+            deploys = unwrap_list(payload, "deploy")
+            status = deploys[0].get("status") if deploys else "pending"
         if status != last:
             print(f"Render: deploy status={status}")
             last = status
@@ -504,14 +543,10 @@ def render_create_or_reuse() -> dict:
         print(f"Render: reusing service {SERVICE_NAME} ({service_id}, {host})")
         if not host:
             host = f"{SERVICE_NAME}.onrender.com"
-        api(
-            "PUT",
-            f"{RENDER_API}/services/{service_id}/env-vars",
-            token,
-            render_env_vars(host),
-        )
-        print("Render: environment variables updated")
-        render_wait_deploy(token, service_id)
+        render_put_env_vars(token, service_id, host)
+        print("Render: environment variables updated; deploying ...")
+        deploy_id = render_trigger_deploy(token, service_id)
+        render_wait_deploy(token, service_id, deploy_id)
     else:
         owner_id = render_owner(token)
         body = {
