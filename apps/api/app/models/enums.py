@@ -120,6 +120,49 @@ class ExtensionActionStatus(StrEnum):
     rejected = "rejected"
 
 
+class SubmodelStatus(StrEnum):
+    """The lifecycle of a submodel."""
+
+    draft = "draft"
+    training = "training"
+    trained = "trained"
+    published = "published"
+    retired = "retired"
+
+
+class SubmodelOrigin(StrEnum):
+    """Where a submodel came from.
+
+    A **trained** submodel learned its task here. An **imported** one arrived
+    as a package and keeps the knowledge it was built with.
+    """
+
+    trained = "trained"
+    imported = "imported"
+
+
+class SubmodelMaterialKind(StrEnum):
+    """The kinds of material a submodel can learn from."""
+
+    video = "video"
+    audio = "audio"
+    document = "document"
+    note = "note"
+
+
+class SubmodelTestOutcome(StrEnum):
+    passed = "passed"
+    failed = "failed"
+    error = "error"
+
+
+class SubmodelActionStatus(StrEnum):
+    proposed = "proposed"
+    confirmed = "confirmed"
+    executed = "executed"
+    rejected = "rejected"
+
+
 class BillingInterval(StrEnum):
     monthly = "monthly"
     annual = "annual"

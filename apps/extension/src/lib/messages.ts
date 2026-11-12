@@ -16,6 +16,10 @@ import type {
   LoginResponse,
   PackageResponse,
   ProcedureStep,
+  SubmodelActionDecision,
+  SubmodelActionPlan,
+  SubmodelGuidanceResponse,
+  SubmodelSummary,
 } from "./types.ts";
 
 /** Sent by the content script to the background worker. */
@@ -36,7 +40,12 @@ export type PanelMessage =
   | { kind: "propose-action"; extensionId: string; actionType: ActionType; description: string; steps: ProcedureStep[] }
   | { kind: "confirm-action"; extensionId: string; planId: string; confirmed: boolean }
   | { kind: "complete-action"; extensionId: string; planId: string; succeeded: boolean; result: Record<string, unknown> }
-  | { kind: "package"; extensionId: string };
+  | { kind: "package"; extensionId: string }
+  | { kind: "submodels" }
+  | { kind: "submodel-guidance"; submodelId: string; question: string }
+  | { kind: "submodel-propose-action"; submodelId: string; actionType: ActionType; description: string; steps: ProcedureStep[] }
+  | { kind: "submodel-confirm-action"; submodelId: string; planId: string; confirmed: boolean }
+  | { kind: "submodel-complete-action"; submodelId: string; planId: string; succeeded: boolean; result: Record<string, unknown> };
 
 export interface SessionState {
   signedIn: boolean;
@@ -59,6 +68,22 @@ export interface SessionState {
     signatureValid: boolean;
     signatureReason: string;
   } | null;
+  /**
+   * The trained submodels this organization can use.
+   *
+   * A submodel may have been trained here or installed from a package; either
+   * way it carries its own workflows.
+   */
+  submodels: SubmodelSummary[];
+  /** The last answer from a submodel. */
+  submodelGuidance: SubmodelGuidanceResponse | null;
+  /** The submodel action plan waiting for the user's confirmation. */
+  pendingSubmodelAction: {
+    decision: SubmodelActionDecision;
+    submodelId: string;
+  } | null;
+  /** The last submodel action the agent reported. */
+  lastSubmodelAction: SubmodelActionPlan | null;
   /** The client this build was packaged for. */
   clientName: string;
   /** Whether this build's own configuration was verified. */

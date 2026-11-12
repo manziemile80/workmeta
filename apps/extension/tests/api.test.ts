@@ -193,3 +193,71 @@ test("a network failure is reported as such", async () => {
     globalThis.fetch = original;
   }
 });
+
+test("the submodels of an organization are listed", async () => {
+  const { calls, client } = stubFetch(() => ({
+    status: 200,
+    payload: [{ id: "sub-1", name: "EBM receipts", origin: "imported" }],
+  }));
+
+  const submodels = await client.submodels("org-1");
+
+  assert.equal(
+    calls[0].url,
+    "https://api.example.com/api/v1/organizations/org-1/submodels",
+  );
+  assert.equal(calls[0].method, "GET");
+  assert.equal(submodels[0].origin, "imported");
+});
+
+test("a submodel is asked directly, without matching the page", async () => {
+  const { calls, client } = stubFetch(() => ({
+    status: 200,
+    payload: { answer: "Open the sales screen." },
+  }));
+
+  await client.submodelGuidance("org-1", "sub-1", "How do I issue a receipt?");
+
+  assert.equal(
+    calls[0].url,
+    "https://api.example.com/api/v1/organizations/org-1/submodels/sub-1/guidance",
+  );
+  const body = JSON.parse(calls[0].body ?? "{}");
+  assert.equal(body.question, "How do I issue a receipt?");
+});
+
+test("a submodel action is proposed, confirmed and completed", async () => {
+  const { calls, client } = stubFetch(() => ({
+    status: 200,
+    payload: { id: "plan-1", status: "proposed" },
+  }));
+
+  await client.submodelProposeAction(
+    "org-1",
+    "sub-1",
+    "payment",
+    "Collect the invoice payment",
+  );
+  await client.submodelConfirmAction("org-1", "sub-1", "plan-1", true);
+  await client.submodelCompleteAction("org-1", "sub-1", "plan-1", true, {
+    receipt: "R-1",
+  });
+
+  assert.equal(
+    calls[0].url,
+    "https://api.example.com/api/v1/organizations/org-1/submodels/sub-1/actions",
+  );
+  assert.equal(
+    calls[1].url,
+    "https://api.example.com/api/v1/organizations/org-1/submodels/sub-1/actions/plan-1/confirm",
+  );
+  assert.deepEqual(JSON.parse(calls[1].body ?? "{}"), { confirmed: true });
+  assert.equal(
+    calls[2].url,
+    "https://api.example.com/api/v1/organizations/org-1/submodels/sub-1/actions/plan-1/complete",
+  );
+  assert.deepEqual(JSON.parse(calls[2].body ?? "{}"), {
+    succeeded: true,
+    result: { receipt: "R-1" },
+  });
+});

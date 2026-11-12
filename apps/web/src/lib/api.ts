@@ -535,6 +535,339 @@ export function fetchPackage(
 }
 
 // ---------------------------------------------------------------------------
+// WorkMeta AI Submodels
+// ---------------------------------------------------------------------------
+
+export interface Submodel {
+  id: string;
+  org_id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  task: string;
+  system_code: string;
+  system_name: string;
+  system_version: string;
+  target_kind: "web" | "desktop";
+  status: string;
+  training_status: string;
+  origin: "trained" | "imported";
+  source_label: string | null;
+  source_digest: string | null;
+  permissions: Record<string, unknown>;
+  capabilities: unknown[];
+  version: number;
+  package_signature: string | null;
+  signing_key_id: string | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+  materials_count: number;
+  workflows_count: number;
+  approved_workflows_count: number;
+  tests_count: number;
+  passed_tests_count: number;
+}
+
+export interface SubmodelCreate {
+  name: string;
+  task: string;
+  system_code: string;
+  system_name: string;
+  system_version: string;
+  description?: string | null;
+  target_kind?: "web" | "desktop";
+  permissions?: Record<string, unknown>;
+}
+
+export interface SubmodelMaterial {
+  id: string;
+  org_id: string;
+  submodel_id: string;
+  kind: "video" | "audio" | "document" | "note";
+  title: string;
+  filename: string | null;
+  mime_type: string | null;
+  size_bytes: number;
+  status: string;
+  extracted_text: string | null;
+  extracted_units: number | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface SubmodelWorkflow {
+  id: string;
+  org_id: string;
+  submodel_id: string;
+  title: string;
+  summary: string | null;
+  steps: ProcedureStep[];
+  source_material_ids: string[];
+  confidence: number;
+  status: "draft" | "approved" | "rejected";
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubmodelTest {
+  id: string;
+  org_id: string;
+  submodel_id: string;
+  question: string;
+  expected_points: string[];
+  answer: string | null;
+  covered_points: string[];
+  missed_points: string[];
+  score: number;
+  outcome: "passed" | "failed" | "error";
+  created_at: string;
+}
+
+export interface SubmodelPackage {
+  filename: string;
+  digest: string;
+  signing_key_id: string;
+  verified: boolean;
+  reason: string;
+  workflow_count: number;
+  payload: Record<string, unknown>;
+}
+
+export interface SubmodelTrainingResult {
+  submodel_id: string;
+  training_status: string;
+  workflows: SubmodelWorkflow[];
+  analysed_materials: number;
+  analysed_characters: number;
+  message: string;
+}
+
+export interface SubmodelGuidance {
+  submodel_id: string;
+  task: string;
+  answer: string;
+  steps: ProcedureStep[];
+  grounded: boolean;
+  workflows_used: string[];
+  model: string | null;
+  usage: Record<string, number>;
+}
+
+export function fetchSubmodels(orgId: string): Promise<Submodel[]> {
+  return request<Submodel[]>(`/organizations/${orgId}/submodels`);
+}
+
+export function createSubmodel(
+  orgId: string,
+  payload: SubmodelCreate,
+): Promise<Submodel> {
+  return request<Submodel>(`/organizations/${orgId}/submodels`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function updateSubmodel(
+  orgId: string,
+  submodelId: string,
+  payload: Partial<SubmodelCreate>,
+): Promise<Submodel> {
+  return request<Submodel>(`/organizations/${orgId}/submodels/${submodelId}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export function retireSubmodel(
+  orgId: string,
+  submodelId: string,
+): Promise<Submodel> {
+  return request<Submodel>(`/organizations/${orgId}/submodels/${submodelId}`, {
+    method: "DELETE",
+  });
+}
+
+export function fetchSubmodelMaterials(
+  orgId: string,
+  submodelId: string,
+): Promise<SubmodelMaterial[]> {
+  return request<SubmodelMaterial[]>(
+    `/organizations/${orgId}/submodels/${submodelId}/materials`,
+  );
+}
+
+export function addSubmodelMaterialNote(
+  orgId: string,
+  submodelId: string,
+  payload: { title: string; text: string },
+): Promise<SubmodelMaterial> {
+  return request<SubmodelMaterial>(
+    `/organizations/${orgId}/submodels/${submodelId}/materials/notes`,
+    { method: "POST", body: payload },
+  );
+}
+
+export function uploadSubmodelMaterial(
+  orgId: string,
+  submodelId: string,
+  file: File,
+  title: string,
+): Promise<SubmodelMaterial> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("title", title);
+  return request<SubmodelMaterial>(
+    `/organizations/${orgId}/submodels/${submodelId}/materials/upload`,
+    { method: "POST", body: form },
+  );
+}
+
+export function readSubmodelMaterial(
+  orgId: string,
+  submodelId: string,
+  materialId: string,
+): Promise<SubmodelMaterial> {
+  return request<SubmodelMaterial>(
+    `/organizations/${orgId}/submodels/${submodelId}/materials/${materialId}/read`,
+    { method: "POST" },
+  );
+}
+
+export function archiveSubmodelMaterial(
+  orgId: string,
+  submodelId: string,
+  materialId: string,
+): Promise<SubmodelMaterial> {
+  return request<SubmodelMaterial>(
+    `/organizations/${orgId}/submodels/${submodelId}/materials/${materialId}`,
+    { method: "DELETE" },
+  );
+}
+
+export function trainSubmodel(
+  orgId: string,
+  submodelId: string,
+): Promise<SubmodelTrainingResult> {
+  return request<SubmodelTrainingResult>(
+    `/organizations/${orgId}/submodels/${submodelId}/train`,
+    { method: "POST" },
+  );
+}
+
+export function fetchSubmodelWorkflows(
+  orgId: string,
+  submodelId: string,
+): Promise<SubmodelWorkflow[]> {
+  return request<SubmodelWorkflow[]>(
+    `/organizations/${orgId}/submodels/${submodelId}/workflows`,
+  );
+}
+
+export function updateSubmodelWorkflow(
+  orgId: string,
+  submodelId: string,
+  workflowId: string,
+  payload: { status: "draft" | "approved" | "rejected" },
+): Promise<SubmodelWorkflow> {
+  return request<SubmodelWorkflow>(
+    `/organizations/${orgId}/submodels/${submodelId}/workflows/${workflowId}`,
+    { method: "PATCH", body: payload },
+  );
+}
+
+export function fetchSubmodelTests(
+  orgId: string,
+  submodelId: string,
+): Promise<SubmodelTest[]> {
+  return request<SubmodelTest[]>(
+    `/organizations/${orgId}/submodels/${submodelId}/tests`,
+  );
+}
+
+export function runSubmodelTest(
+  orgId: string,
+  submodelId: string,
+  payload: { question: string; expected_points: string[] },
+): Promise<SubmodelTest> {
+  return request<SubmodelTest>(
+    `/organizations/${orgId}/submodels/${submodelId}/tests`,
+    { method: "POST", body: payload },
+  );
+}
+
+export function fetchSubmodelPackage(
+  orgId: string,
+  submodelId: string,
+): Promise<SubmodelPackage> {
+  return request<SubmodelPackage>(
+    `/organizations/${orgId}/submodels/${submodelId}/package`,
+  );
+}
+
+/**
+ * The signed package as a file.
+ *
+ * The download is a plain JSON document, so it is fetched through the normal
+ * request path and turned into a blob the browser can save.
+ */
+export async function downloadSubmodelPackage(
+  orgId: string,
+  submodelId: string,
+): Promise<{ filename: string; content: string }> {
+  const response = await fetch(
+    `${API_BASE_URL}/organizations/${orgId}/submodels/${submodelId}/download`,
+    { credentials: "include", headers: { Accept: "application/json" } },
+  );
+  if (!response.ok) {
+    let code = "request_failed";
+    let message = `Request failed with status ${response.status}.`;
+    const parsed = (await response.json().catch(() => null)) as
+      | ErrorEnvelope
+      | null;
+    if (parsed?.error) {
+      code = parsed.error.code ?? code;
+      message = parsed.error.message ?? message;
+    }
+    throw new ApiRequestError(response.status, code, message);
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  return {
+    filename: match?.[1] ?? `submodel-${submodelId}.wmsubmodel.json`,
+    content: await response.text(),
+  };
+}
+
+export function installSubmodel(
+  orgId: string,
+  file: File,
+  label?: string,
+): Promise<Submodel> {
+  const form = new FormData();
+  form.append("file", file);
+  if (label) {
+    form.append("label", label);
+  }
+  return request<Submodel>(`/organizations/${orgId}/submodels/import`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export function askSubmodel(
+  orgId: string,
+  submodelId: string,
+  payload: { question: string; context?: Record<string, unknown> },
+): Promise<SubmodelGuidance> {
+  return request<SubmodelGuidance>(
+    `/organizations/${orgId}/submodels/${submodelId}/guidance`,
+    { method: "POST", body: payload },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Billing
 // ---------------------------------------------------------------------------
 

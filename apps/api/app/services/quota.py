@@ -356,6 +356,48 @@ async def guard_extension_create(
         )
 
 
+async def guard_submodel_create(
+    session: AsyncSession, org_id: uuid.UUID
+) -> None:
+    """Enforce the plan's submodel limit.
+
+    Submodels are a metered resource like assistants, documents and
+    extensions: a client can train several models, but the plan decides how
+    many. An **imported** submodel counts too: it is a trained model the
+    client is using, whether it was trained here or elsewhere.
+    """
+    from app.models.submodel import Submodel
+
+    context = await billing.ensure_subscription(session, org_id)
+    _ensure_mutations_allowed(context)
+    limit = context.plan.max_submodels
+    if limit is None:
+        return
+    await _advisory_lock(session, f"submodels:{org_id}")
+    used = int(
+        await session.scalar(
+            select(func.count(Submodel.id)).where(
+                Submodel.org_id == org_id,
+                Submodel.status != "retired",
+            )
+        )
+        or 0
+    )
+    if used >= limit:
+        raise _quota_error(
+            code="submodel_limit_reached",
+            message=(
+                "This organization has reached its submodel limit. "
+                "Upgrade the plan or retire a submodel to train another one."
+            ),
+            status_code=403,
+            plan=context.plan,
+            limit_type="submodels",
+            used=used,
+            requested=1,
+        )
+
+
 async def guard_document_upload(
     session: AsyncSession, org_id: uuid.UUID, *, size_bytes: int
 ) -> None:

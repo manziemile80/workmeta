@@ -119,6 +119,70 @@ export interface ActionDecision {
   reason: string;
 }
 
+/**
+ * A WorkMeta AI Submodel: a trained model for one task.
+ *
+ * A submodel is portable — it carries its own workflows, so it works on a
+ * machine it was never trained on.
+ */
+export interface SubmodelSummary {
+  id: string;
+  org_id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  task: string;
+  system_code: string;
+  system_name: string;
+  system_version: string;
+  target_kind: "web" | "desktop";
+  status: string;
+  training_status: string;
+  /** `trained` here, `imported` when it came from a package. */
+  origin: "trained" | "imported";
+  permissions: {
+    auto_actions: string[];
+    confirm_actions: string[];
+    denied_actions: string[];
+  };
+  version: number;
+  approved_workflows_count: number;
+}
+
+export interface SubmodelGuidanceResponse {
+  submodel_id: string;
+  task: string;
+  answer: string;
+  steps: Array<ProcedureStep & { workflow?: string }>;
+  grounded: boolean;
+  workflows_used: string[];
+  model: string | null;
+  usage: Record<string, number>;
+}
+
+export interface SubmodelActionPlan {
+  id: string;
+  org_id: string;
+  submodel_id: string;
+  action_type: string;
+  description: string;
+  steps: ProcedureStep[];
+  status: "proposed" | "confirmed" | "executed" | "rejected";
+  requires_confirmation: boolean;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  result: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubmodelActionDecision {
+  plan: SubmodelActionPlan;
+  allowed: boolean;
+  requires_confirmation: boolean;
+  reason: string;
+}
+
 /** The signed manifest the client installs. */
 export interface PackageManifest {
   schema: string;

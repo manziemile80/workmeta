@@ -662,3 +662,74 @@ contract; Stage 11 is the **client-side agent** that speaks it. See
    API client; `npm run typecheck:extension` and `npm run build:extension`
    run in CI.
 
+---
+
+## 17. Stage 12 delivered scope — WorkMeta AI Submodels
+
+A **submodel** is a trained model for a *task*, not an extension for a system.
+It is the unit a client trains on recordings of real work, tests, and then
+publishes as a signed package that installs on another computer and works
+there on its own. See `docs/SUBMODELS.md`.
+
+1. **Data model** — five new tables in migration `20261112_0012`:
+   `submodels`, `submodel_materials`, `submodel_procedures`, `submodel_tests`
+   and `submodel_action_plans`. All carry `org_id`, all use the same forced
+   tenant RLS policy as the knowledge tables, and the runtime role gets
+   `SELECT`/`INSERT`/`UPDATE` only — never `DELETE`. `subscription_plans` gains
+   `max_submodels` (NULL means unlimited; the Free plan starts at one) and
+   `quota.guard_submodel_create` enforces it for both trained and imported
+   submodels.
+2. **A separate, parallel subsystem** — submodels do not touch the trained
+   extensions. An extension is bound to one tenant, one assistant and one
+   system at one version and retrieves its knowledge from the tenant's
+   documents. A submodel **carries its own workflows**, so it is portable: an
+   installed copy works with no training material, no tenant documents and no
+   contact with the machine that trained it. Everything that existed before
+   still behaves exactly as it did.
+3. **Video-based training** — `app/services/media.py` gained a timestamped
+   frame extractor (`ffmpeg` + `showinfo`) and `app/services/video_analysis.py`
+   turns a recording into a deterministic **timeline**: frames with timestamps →
+   OCR per frame → consecutive similar frames grouped into UI states →
+   transitions between states are the detected actions. The model is then asked
+   to *name* those actions as ordered steps, never to summarise a video. A
+   sensitive step (submits, moves money, deletes, sends) is marked and always
+   needs the user's confirmation.
+4. **Training, approval and testing** — `POST .../train` writes the extracted
+   workflows as **drafts**; a human approves each one; only approved workflows
+   are used and only approved workflows are exported. Tests ask a question and
+   list the points the answer must contain, and pass only when every point is
+   covered.
+5. **Signed, portable packages** — the package is a single JSON file
+   (`workmeta.submodel-package/1`) signed with Ed25519 over the canonical JSON
+   of the payload, so the **workflows themselves** are covered by the
+   signature, not just the metadata. The signing key id and the public key
+   travel with the package. Importing verifies the signature and refuses a
+   package that was changed after it was signed (`409
+   submodel_package_unverified`). An imported submodel is re-signed locally and
+   keeps `source_label` / `source_digest` for provenance.
+6. **Practical execution** — the agent proposes an action and the server
+   answers under the submodel's own permission policy. A sensitive action needs
+   the user's explicit confirmation, and a **refused** action is stored as
+   `rejected` and can never be reported as performed (`409
+   action_not_allowed`). Guidance answers only from the approved workflows and
+   treats both the workflows and the page context as untrusted data.
+7. **Console** — a new **Submodels** tab in the web console: create, install a
+   package, add material, read a recording, train, approve, test, ask and
+   download. Everything it shows is read from the API; nothing is simulated.
+8. **The installed agent** — the MV3 side panel lists the organization's
+   submodels and lets the user pick one. A picked submodel is asked
+   **directly** — no page matching is needed, because it carries its own
+   workflows — and it behaves the same whether it was trained there or
+   installed from a package. A submodel action goes through the same
+   server-side decision as an extension action.
+9. **Tests** — 28 database-free unit tests (`tests/test_submodel_unit.py`)
+   covering the permission policy, the frame→state→transition timeline, the
+   parsing of the model's answer, the withdrawal of an approval when the
+   steps change, and the signature verification (including a package signed
+   with another key and a tampered package), plus 6 integration tests
+   (`tests/test_submodel_integration.py`) covering the full lifecycle, an
+   installed copy working on its own, a tampered package being refused, the
+   denied-action guarantee, the confirmation requirement and cross-tenant
+   isolation.
+
+

@@ -76,6 +76,8 @@ class SubscriptionPlan(Base):
     max_storage_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # Trained extensions are metered like assistants and documents.
     max_extensions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # WorkMeta AI Submodels are metered the same way.
+    max_submodels: Mapped[int | None] = mapped_column(Integer, nullable=True)
     monthly_token_allowance: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True
     )

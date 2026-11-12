@@ -15,7 +15,8 @@ one maintainable core, never from forked codebases.
 > re-verification, Dockerfiles, prod Compose + TLS proxy, billing worker,
 > `/metrics`, backup/restore scripts and extended CI (Stage 6) →
 > self-service registration (Stage 9) → trained extensions for institutional
-> systems (Stage 10) → the installed MV3 agent (Stage 11).
+> systems (Stage 10) → the installed MV3 agent (Stage 11) → WorkMeta AI
+> Submodels: trainable, downloadable models (Stage 12).
 > See [docs/PLAN.md](docs/PLAN.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
@@ -38,6 +39,7 @@ one maintainable core, never from forked codebases.
 | Self-service registration | ✅ Stage 9 | Sign-up page, per-client organization, Free plan, live verification |
 | Trained extensions | ✅ Stage 10 | Per-client extensions for institutional systems: training material, extracted procedures, tests, signed package, authorised actions |
 | Installed agent | ✅ Stage 11 | One MV3 codebase: signs in, recognises the trained system on screen, gives cited guidance, confirms actions before they run |
+| WorkMeta AI Submodels | ✅ Stage 12 | Trainable, downloadable models for a task: read a recording as a sequence of screens and actions, approve the workflows, test them, download a signed package and install it on another computer where it works on its own |
 
 Nothing is simulated in the UI: every value is read from the API.
 
@@ -45,6 +47,8 @@ Stages 4–5 added the real dashboards, streaming, OCR, document deletion,
 billing, subscriptions and platform administration. Stage 6 hardened
 production: see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md),
 [docs/SECURITY.md](docs/SECURITY.md) and [docs/BACKUP.md](docs/BACKUP.md).
+Stage 12 added WorkMeta AI Submodels — trainable, downloadable models: see
+[docs/SUBMODELS.md](docs/SUBMODELS.md).
 
 ---
 
@@ -340,16 +344,18 @@ workmeta/
 │   │   │   ├── api/v1/      auth, orgs, members, invitations, assistants,
 │   │   │   │                documents, conversations, products, audit,
 │   │   │   │                billing, platform, usage, health (metrics),
-│   │   │   │                extensions (training, tests, package, actions)
+│   │   │   │                extensions (training, tests, package, actions),
+│   │   │   │                submodels (training, tests, package, actions)
 │   │   │   ├── core/        config, security, logging, errors, middleware
 │   │   │   │                (rate limit, body cap, TrustedHost, metrics)
 │   │   │   ├── db/          engine, session, RLS helpers, declarative base
 │   │   │   ├── models/      identity, tenancy, assistants, documents, chat,
-│   │   │   │                billing, usage counters
+│   │   │   │                billing, usage counters, submodels
 │   │   │   ├── prompts/     versioned grounded-answer policy
 │   │   │   ├── schemas/     Pydantic request/response contracts
 │   │   │   ├── services/    auth, storage, AI provider, extraction, retrieval,
-│   │   │   │                billing, payments, quota, extensions
+│   │   │   │                billing, payments, quota, extensions, submodels,
+│   │   │   │                video analysis, submodel packaging
 │   │   │   └── workers/     ingestion queue worker + billing worker
 │   │   ├── alembic/         migrations (schema, RLS policies, grants)
 │   │   ├── Dockerfile       production API image
@@ -369,7 +375,8 @@ workmeta/
 │                            payment-sandbox validator, extension packaging
 ├── docs/                    PLAN, DEPLOYMENT, SECURITY, BACKUP,
 │                            TRAINED_EXTENSIONS (per-client training),
-│                            AGENT_EXTENSION (the installed agent)
+│                            AGENT_EXTENSION (the installed agent),
+│                            SUBMODELS (trainable, downloadable models)
 └── .env.example
 ├── tools/
 │   └── scripts/             generate_env.py, seed_owner.py

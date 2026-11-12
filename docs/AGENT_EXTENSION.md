@@ -6,7 +6,8 @@
 
 This document describes the agent that runs **in the browser**. The platform
 side it talks to is described in
-[Trained Extensions](TRAINED_EXTENSIONS.md).
+[Trained Extensions](TRAINED_EXTENSIONS.md) and in
+[Submodels](SUBMODELS.md).
 
 ---
 
@@ -86,9 +87,11 @@ languages).
    policy) and sign in with their work account.
 3. When they open a trained system, the agent recognises it and offers
    guidance for that system and version.
-4. When they ask a question, the agent answers from the approved procedures,
+4. When they pick a **submodel** — a trained model for a task — the agent asks
+   it directly, whether it was trained here or installed from a package.
+5. When they ask a question, the agent answers from the approved procedures,
    with the steps and where to click.
-5. When an action is proposed, the client's policy decides. If it is
+6. When an action is proposed, the client's policy decides. If it is
    sensitive, the panel asks the user to confirm it first.
 
 ---
@@ -152,9 +155,25 @@ a valid user login for that client.
 | `POST …/actions/{plan}/confirm` | Record the user's confirmation or refusal. |
 | `POST …/actions/{id}/actions/{plan}/complete` | Report that the action ran. |
 | `GET /organizations/{org}/extensions/{id}/package` | The signed package and the bytes its signature covers. |
+| `GET /organizations/{org}/submodels` | The trained models this organization can use. |
+| `POST /organizations/{org}/submodels/{id}/guidance` | Grounded steps from a submodel's own approved workflows. |
+| `POST /organizations/{org}/submodels/{id}/actions` | Ask whether an action may be performed, under the submodel's policy. |
+| `POST …/submodels/{id}/actions/{plan}/confirm` | Record the user's confirmation or refusal. |
+| `POST …/submodels/{id}/actions/{plan}/complete` | Report that the action ran. |
 
 Every call is authorised by the server against the user's membership in the
 organization, so the agent cannot reach another client's data.
+
+### Submodels in the panel
+
+The side panel lists the submodels of the organization and lets the user pick
+one. A picked submodel is asked **directly** — no page matching is needed,
+because a submodel carries its own workflows. It behaves identically whether
+the model was trained here or installed from a package on another machine.
+
+An action a submodel proposes goes through the same decision: the server
+answers under the submodel's own policy, a sensitive action waits for the
+user's confirmation, and a refused action is never reported as performed.
 
 ---
 

@@ -142,3 +142,34 @@ def public_key_from_pem(pem: str) -> Ed25519PublicKey:
     if not isinstance(key, Ed25519PublicKey):
         raise ValueError("Not an Ed25519 public key")
     return key
+
+
+def verify_bytes_with_public_key(
+    payload: bytes, signature: str | None, public_key: str | None
+) -> bool:
+    """Check bytes against a signature made by the holder of a public key.
+
+    This is how a **portable** package is verified on a machine that never had
+    the training machine's private key: the public key travels inside the
+    package, and the signature is checked against *that* key rather than
+    against the local deployment's own key.
+
+    It proves the package was not changed after it was signed. It does not
+    prove *who* signed it — the key id is reported so the caller can decide
+    whether it trusts that key.
+    """
+    if not signature or not public_key:
+        return False
+    try:
+        raw = base64.b64decode(signature, validate=True)
+    except Exception:  # noqa: BLE001 - a malformed signature is simply invalid
+        return False
+    try:
+        key = public_key_from_pem(public_key)
+    except Exception:  # noqa: BLE001 - a malformed key is simply invalid
+        return False
+    try:
+        key.verify(raw, payload)
+    except InvalidSignature:
+        return False
+    return True

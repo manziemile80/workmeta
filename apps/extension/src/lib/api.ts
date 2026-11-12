@@ -17,6 +17,10 @@ import type {
   PageContext,
   PackageResponse,
   ProcedureStep,
+  SubmodelActionDecision,
+  SubmodelActionPlan,
+  SubmodelGuidanceResponse,
+  SubmodelSummary,
 } from "./types.ts";
 
 export class ApiError extends Error {
@@ -238,6 +242,80 @@ export class WorkMetaClient {
   package(orgId: string, extensionId: string): Promise<PackageResponse> {
     return this.request<PackageResponse>(
       `/organizations/${orgId}/extensions/${extensionId}/package`,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // WorkMeta AI Submodels
+  // -------------------------------------------------------------------------
+
+  /**
+   * The submodels this organization can use.
+   *
+   * A submodel is a trained model for one task. It may have been trained
+   * here or installed from a package; either way it carries its own
+   * workflows, so it works on this machine without training again.
+   */
+  submodels(orgId: string): Promise<SubmodelSummary[]> {
+    return this.request<SubmodelSummary[]>(
+      `/organizations/${orgId}/submodels`,
+    );
+  }
+
+  /** Step-by-step guidance from one submodel's approved workflows. */
+  submodelGuidance(
+    orgId: string,
+    submodelId: string,
+    question: string,
+    context?: PageContext,
+  ): Promise<SubmodelGuidanceResponse> {
+    return this.request<SubmodelGuidanceResponse>(
+      `/organizations/${orgId}/submodels/${submodelId}/guidance`,
+      { method: "POST", body: { question, context: context ?? {} } },
+    );
+  }
+
+  /** Ask whether an action may be performed, under the submodel's policy. */
+  submodelProposeAction(
+    orgId: string,
+    submodelId: string,
+    actionType: ActionType,
+    description: string,
+    steps: ProcedureStep[] = [],
+  ): Promise<SubmodelActionDecision> {
+    return this.request<SubmodelActionDecision>(
+      `/organizations/${orgId}/submodels/${submodelId}/actions`,
+      {
+        method: "POST",
+        body: { action_type: actionType, description, steps },
+      },
+    );
+  }
+
+  /** Record the user's confirmation (or refusal) of a sensitive action. */
+  submodelConfirmAction(
+    orgId: string,
+    submodelId: string,
+    planId: string,
+    confirmed: boolean,
+  ): Promise<SubmodelActionPlan> {
+    return this.request<SubmodelActionPlan>(
+      `/organizations/${orgId}/submodels/${submodelId}/actions/${planId}/confirm`,
+      { method: "POST", body: { confirmed } },
+    );
+  }
+
+  /** Report that the action ran. */
+  submodelCompleteAction(
+    orgId: string,
+    submodelId: string,
+    planId: string,
+    succeeded: boolean,
+    result: Record<string, unknown> = {},
+  ): Promise<SubmodelActionPlan> {
+    return this.request<SubmodelActionPlan>(
+      `/organizations/${orgId}/submodels/${submodelId}/actions/${planId}/complete`,
+      { method: "POST", body: { succeeded, result } },
     );
   }
 }

@@ -31,6 +31,10 @@ import type {
   LoginResponse,
   PackageResponse,
   PageContext,
+  SubmodelActionDecision,
+  SubmodelActionPlan,
+  SubmodelGuidanceResponse,
+  SubmodelSummary,
 } from "../lib/types.ts";
 
 interface WorkerState {
@@ -49,6 +53,13 @@ interface WorkerState {
     signatureValid: boolean;
     signatureReason: string;
   } | null;
+  submodels: SubmodelSummary[];
+  submodelGuidance: SubmodelGuidanceResponse | null;
+  pendingSubmodelAction: {
+    decision: SubmodelActionDecision;
+    submodelId: string;
+  } | null;
+  lastSubmodelAction: SubmodelActionPlan | null;
   error: string | null;
 }
 
@@ -63,6 +74,10 @@ const state: WorkerState = {
   pendingAction: null,
   lastAction: null,
   package: null,
+  submodels: [],
+  submodelGuidance: null,
+  pendingSubmodelAction: null,
+  lastSubmodelAction: null,
   error: null,
 };
 
@@ -105,6 +120,10 @@ function publicState(): SessionState {
     pendingAction: state.pendingAction,
     lastAction: state.lastAction,
     package: state.package,
+    submodels: state.submodels,
+    submodelGuidance: state.submodelGuidance,
+    pendingSubmodelAction: state.pendingSubmodelAction,
+    lastSubmodelAction: state.lastSubmodelAction,
     clientName: state.config?.clientName ?? "WorkMeta AI",
     configChecked: state.config?.signatureChecked ?? false,
     configReason: state.config?.signatureReason ?? "",
@@ -158,6 +177,10 @@ async function signOut(): Promise<WorkerResponse> {
   state.guidance = null;
   state.pendingAction = null;
   state.lastAction = null;
+  state.submodels = [];
+  state.submodelGuidance = null;
+  state.pendingSubmodelAction = null;
+  state.lastSubmodelAction = null;
   state.page = null;
   state.pageText = "";
   if (state.client) {
@@ -369,6 +392,154 @@ async function loadPackage(extensionId: string): Promise<WorkerResponse> {
   }
 }
 
+/**
+ * Load the trained submodels.
+ *
+ * A submodel is a trained model for one task. It may have been trained here
+ * or installed from a package on another machine — either way it carries its
+ * own workflows, so the agent can use it without training anything.
+ */
+async function loadSubmodels(): Promise<WorkerResponse> {
+  if (!(await ensureReady()) || !state.client || !state.config) {
+    return { ok: false, error: state.error ?? "The extension is not configured." };
+  }
+  try {
+    const orgId = state.session?.active_organization?.id ?? state.config.orgId;
+    state.submodels = await state.client.submodels(orgId);
+    return { ok: true, data: publicState() };
+  } catch (error) {
+    const message =
+      error instanceof ApiError ? error.message : "Could not load the submodels.";
+    return { ok: false, error: message, code: "submodels_failed" };
+  }
+}
+
+/**
+ * Ask a submodel a question.
+ *
+ * The answer comes from the workflows the submodel learned, so it is the same
+ * on this machine as on the machine it was trained on.
+ */
+async function submodelGuidance(
+  submodelId: string,
+  question: string,
+): Promise<WorkerResponse> {
+  if (!(await ensureReady()) || !state.client || !state.config) {
+    return { ok: false, error: state.error ?? "The extension is not configured." };
+  }
+  try {
+    const orgId = state.session?.active_organization?.id ?? state.config.orgId;
+    const context: PageContext = {};
+    if (state.page) {
+      context.url = state.page.url;
+    }
+    if (state.pageText) {
+      context.text = state.pageText;
+    }
+    state.submodelGuidance = await state.client.submodelGuidance(
+      orgId,
+      submodelId,
+      question,
+      context,
+    );
+    return { ok: true, data: state.submodelGuidance };
+  } catch (error) {
+    const message =
+      error instanceof ApiError
+        ? error.message
+        : "Could not get an answer from the submodel.";
+    return { ok: false, error: message, code: "submodel_guidance_failed" };
+  }
+}
+
+/**
+ * Ask whether a submodel may perform an action.
+ *
+ * The submodel's own policy decides, and a sensitive action waits for the
+ * user's confirmation before it runs.
+ */
+async function submodelProposeAction(
+  submodelId: string,
+  actionType: Parameters<WorkMetaClient["submodelProposeAction"]>[2],
+  description: string,
+  steps: Parameters<WorkMetaClient["submodelProposeAction"]>[4],
+): Promise<WorkerResponse> {
+  if (!(await ensureReady()) || !state.client || !state.config) {
+    return { ok: false, error: state.error ?? "The extension is not configured." };
+  }
+  try {
+    const orgId = state.session?.active_organization?.id ?? state.config.orgId;
+    const decision = await state.client.submodelProposeAction(
+      orgId,
+      submodelId,
+      actionType,
+      description,
+      steps,
+    );
+    state.pendingSubmodelAction = { decision, submodelId };
+    return { ok: true, data: publicState() };
+  } catch (error) {
+    const message =
+      error instanceof ApiError ? error.message : "Could not request the action.";
+    return { ok: false, error: message, code: "submodel_action_failed" };
+  }
+}
+
+/** Record the user's answer about a sensitive action. */
+async function submodelConfirmAction(
+  submodelId: string,
+  planId: string,
+  confirmed: boolean,
+): Promise<WorkerResponse> {
+  if (!(await ensureReady()) || !state.client || !state.config) {
+    return { ok: false, error: state.error ?? "The extension is not configured." };
+  }
+  try {
+    const orgId = state.session?.active_organization?.id ?? state.config.orgId;
+    const plan = await state.client.submodelConfirmAction(
+      orgId,
+      submodelId,
+      planId,
+      confirmed,
+    );
+    state.lastSubmodelAction = plan;
+    state.pendingSubmodelAction = null;
+    return { ok: true, data: publicState() };
+  } catch (error) {
+    const message =
+      error instanceof ApiError ? error.message : "Could not record the answer.";
+    return { ok: false, error: message, code: "submodel_confirm_failed" };
+  }
+}
+
+/** Report that the submodel's action ran. */
+async function submodelCompleteAction(
+  submodelId: string,
+  planId: string,
+  succeeded: boolean,
+  result: Record<string, unknown>,
+): Promise<WorkerResponse> {
+  if (!(await ensureReady()) || !state.client || !state.config) {
+    return { ok: false, error: state.error ?? "The extension is not configured." };
+  }
+  try {
+    const orgId = state.session?.active_organization?.id ?? state.config.orgId;
+    const plan = await state.client.submodelCompleteAction(
+      orgId,
+      submodelId,
+      planId,
+      succeeded,
+      result,
+    );
+    state.lastSubmodelAction = plan;
+    return { ok: true, data: publicState() };
+  } catch (error) {
+    const message =
+      error instanceof ApiError ? error.message : "Could not record the result.";
+    return { ok: false, error: message, code: "submodel_complete_failed" };
+  }
+}
+
 async function handlePanelMessage(
   message: PanelMessage,
 ): Promise<WorkerResponse> {
@@ -406,6 +577,30 @@ async function handlePanelMessage(
       );
     case "package":
       return loadPackage(message.extensionId);
+    case "submodels":
+      return loadSubmodels();
+    case "submodel-guidance":
+      return submodelGuidance(message.submodelId, message.question);
+    case "submodel-propose-action":
+      return submodelProposeAction(
+        message.submodelId,
+        message.actionType,
+        message.description,
+        message.steps,
+      );
+    case "submodel-confirm-action":
+      return submodelConfirmAction(
+        message.submodelId,
+        message.planId,
+        message.confirmed,
+      );
+    case "submodel-complete-action":
+      return submodelCompleteAction(
+        message.submodelId,
+        message.planId,
+        message.succeeded,
+        message.result,
+      );
   }
 }
 
