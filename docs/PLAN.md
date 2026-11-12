@@ -421,6 +421,11 @@ workmeta/
 
 **MVP = Stages 0–4.** Stages 5–6 make it pilot-ready/commercial. Stages 7–8 are post-MVP and legally gated.
 
+> The stages below are the original plan. The delivered increments are
+> numbered as in the README (Stages 0–6, then 9 self-service registration,
+> 10 trained extensions, 11 the installed agent); their delivered scope is
+> in sections 14–16 of this document.
+
 | Stage | What gets built | Done when | Est. |
 |---|---|---|---|
 | **0. Foundations** ✅ | Monorepo config, Docker Compose (Postgres+pgvector), env handling, API skeleton, web shell, design tokens, CI, README | API `/health` and `/ready` work; unit + database tests pass; web build succeeds | 1–2 days |
@@ -617,3 +622,43 @@ Implemented in migration `20261110_0005` (`subscription_plans`,
 6. **CI/CD** — `ci.yml` adds pip/npm audits, `alembic check`, round-trip, Docker builds, Compose validation. Promotion is manual/gated; migrations never auto-run in production.
 7. **Payments** — webhook live re-verification (`BILLING_WEBHOOK_VERIFY`) + `tools/scripts/test_payment_sandbox.py` (credential-gated, no charge). Live sandbox run with real sandbox keys still required.
 8. **Performance** — atomic quota updates (no scans), existing indexes, replica-safe worker claims. No formal load test executed.
+
+---
+
+## 16. Stage 11 delivered scope — the installed agent
+
+The platform side of trained extensions (Stage 10) defines the runtime
+contract; Stage 11 is the **client-side agent** that speaks it. See
+`docs/AGENT_EXTENSION.md`.
+
+1. **One MV3 codebase** — `apps/extension/`: a background service worker (the
+   only part that talks to the API), a content script that runs only on the
+   client's trained domains, and a side panel. Packaging rewrites the manifest
+   and the configuration per client; the code is identical for everyone.
+2. **Sign-in** — `POST /auth/login` with `kind: "extension"` returns a bearer
+   token, so the agent never depends on the browser's cookie jar. The token
+   stays in `chrome.storage.local` and is used only by the service worker.
+3. **Recognition and guidance** — the agent asks `…/extensions/recognize` which
+   published extension recognises the page, and `…/extensions/{id}/guidance`
+   for cited steps. The visible text of the page is sent only when the user
+   asks a question about it.
+4. **Authorised actions** — the agent proposes an action, the server decides
+   under the client's own policy, and a sensitive action needs the user's
+   explicit confirmation before it runs. The plan records who confirmed what.
+5. **Least privilege** — no `tabs` permission and no "all sites" host
+   permission, so the agent cannot see where the user has been. The content
+   script is registered for the client's domains only, and the worker checks
+   the address again before using it.
+6. **Untrusted page context** — the guidance prompt delimits the page text as
+   untrusted data, so text on a screen cannot instruct the model.
+7. **Signed packages** — the packager signs the agent's configuration with
+   Ed25519 and the agent verifies it in the browser with WebCrypto; the API
+   returns the exact canonical bytes it signed (`canonical_manifest`) so the
+   agent never re-serialises a manifest to check it.
+8. **Tooling** — `tools/scripts/pack_extension.py` produces the branded,
+   signed ZIP; `tools/scripts/generate_extension_icons.py` draws the icons.
+9. **Tests** — 23 Node tests (`apps/extension/tests/`) covering the domain
+   check, the signature verification (including a real packaged agent) and the
+   API client; `npm run typecheck:extension` and `npm run build:extension`
+   run in CI.
+

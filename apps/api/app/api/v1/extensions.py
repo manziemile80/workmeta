@@ -894,15 +894,17 @@ async def _package(
 ) -> PackageRead:
     from app.services import extension_signing
 
+    manifest = extension.package_manifest or {}
     return PackageRead(
         extension_id=extension.id,
         slug=extension.slug,
         version=extension.version,
-        manifest=extension.package_manifest or {},
+        manifest=manifest,
         signature=extension.package_signature,
         signing_key_id=extension.signing_key_id,
         public_key=extension_signing.public_key_pem(),
         published_at=extension.published_at,
+        canonical_manifest=extension_signing.canonical_json(manifest).decode("utf-8"),
     )
 
 

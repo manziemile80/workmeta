@@ -182,6 +182,11 @@ downloaded package. When no signing key is configured the package is published
 **unsigned** and the console says so — WorkMeta never claims a package is
 signed when it is not.
 
+The response also carries `canonical_manifest`: the exact bytes the signature
+covers. A browser verifies those bytes instead of re-serialising the
+manifest, because the canonical form of a number is not portable between
+languages.
+
 ## 8. Runtime contract
 
 The installed agent talks to these endpoints. All of them require an
@@ -252,10 +257,9 @@ operation cannot be completed before the confirmation exists
   management systems, hospital systems and desktop software are all
   *trainable*, not *trained*: an extension only exists after a client trained
   it, and it only claims the workflows that were trained, approved and tested.
-- The installed agent (the MV3 browser/desktop extension) is a separate
-  deliverable. This document defines the platform contract it talks to; the
-  agent itself is built against `docs/PLAN.md` and is not part of this
-  increment.
+- The installed agent is described in [The Installed Agent](AGENT_EXTENSION.md).
+  It is the browser agent that talks to the runtime contract below; the
+  desktop companion is a separate deliverable and does not exist yet.
 - Video reading needs `ffmpeg` and OCR; audio transcription needs a
   transcription model. Both are optional capabilities with honest failure
   messages, not silent gaps.

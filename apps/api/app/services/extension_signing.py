@@ -104,6 +104,37 @@ def verify_manifest(manifest: dict[str, Any], signature: str | None) -> bool:
     return True
 
 
+def sign_bytes(payload: bytes) -> str:
+    """Sign arbitrary bytes with the deployment key.
+
+    The white-label package builder signs the client configuration file exactly
+    as it is written to disk, so the installed agent verifies the bytes it
+    received without re-serialising them.
+    """
+    key = _private_key()
+    if key is None:
+        raise SigningUnavailable(
+            "No extension signing key is configured on this deployment."
+        )
+    return base64.b64encode(key.sign(payload)).decode("ascii")
+
+
+def verify_bytes(payload: bytes, signature: str | None) -> bool:
+    """Check arbitrary bytes against a signature."""
+    key = _private_key()
+    if key is None or not signature:
+        return False
+    try:
+        raw = base64.b64decode(signature, validate=True)
+    except Exception:  # noqa: BLE001 - a malformed signature is simply invalid
+        return False
+    try:
+        key.public_key().verify(raw, payload)
+    except InvalidSignature:
+        return False
+    return True
+
+
 def public_key_from_pem(pem: str) -> Ed25519PublicKey:
     """Load a public key (used by the tests and by tooling)."""
     der = base64.b64decode(pem, validate=True)

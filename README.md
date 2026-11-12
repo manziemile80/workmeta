@@ -13,7 +13,9 @@ one maintainable core, never from forked codebases.
 > subscriptions, quota enforcement, billing UI and platform admin (Stage 5) →
 > security hardening, rate limiting, TrustedHost, body limits, webhook
 > re-verification, Dockerfiles, prod Compose + TLS proxy, billing worker,
-> `/metrics`, backup/restore scripts and extended CI (Stage 6).
+> `/metrics`, backup/restore scripts and extended CI (Stage 6) →
+> self-service registration (Stage 9) → trained extensions for institutional
+> systems (Stage 10) → the installed MV3 agent (Stage 11).
 > See [docs/PLAN.md](docs/PLAN.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
@@ -35,6 +37,7 @@ one maintainable core, never from forked codebases.
 | Production hardening | ✅ Stage 6 | Rate limits, TrustedHost, body caps, webhook re-verify, Docker/prod Compose, workers, metrics, backups |
 | Self-service registration | ✅ Stage 9 | Sign-up page, per-client organization, Free plan, live verification |
 | Trained extensions | ✅ Stage 10 | Per-client extensions for institutional systems: training material, extracted procedures, tests, signed package, authorised actions |
+| Installed agent | ✅ Stage 11 | One MV3 codebase: signs in, recognises the trained system on screen, gives cited guidance, confirms actions before they run |
 
 Nothing is simulated in the UI: every value is read from the API.
 
@@ -352,6 +355,8 @@ workmeta/
 │   │   ├── Dockerfile       production API image
 │   │   └── tests/           unit + real-database suites (incl. billing/security)
 │   └── web/                 React + TypeScript + Tailwind shell (+ Dockerfile)
+│   └── extension/           the installed agent (MV3): background worker,
+│                            content script, side panel, manifest template
 ├── packages/
 │   └── design-tokens/       navy/teal brand tokens (CSS + TS)
 ├── infra/
@@ -361,9 +366,10 @@ workmeta/
 │   ├── deploy/                 nginx static config + production env example
 │   └── postgres/init/          extensions + restricted app role
 ├── tools/scripts/           generate_env, seed_owner, backup, restore,
-│                            payment-sandbox validator
+│                            payment-sandbox validator, extension packaging
 ├── docs/                    PLAN, DEPLOYMENT, SECURITY, BACKUP,
-│                            TRAINED_EXTENSIONS (per-client training)
+│                            TRAINED_EXTENSIONS (per-client training),
+│                            AGENT_EXTENSION (the installed agent)
 └── .env.example
 ├── tools/
 │   └── scripts/             generate_env.py, seed_owner.py
@@ -412,6 +418,11 @@ workmeta/
 - Production requires an explicit session secret.
 - AI keys live only in server environment variables. The extension will never
   receive provider credentials.
+- The installed agent holds no provider credentials and no secret at all: its
+  package carries only public configuration, signed with Ed25519 and checked
+  in the browser with WebCrypto. Its session token stays in the service
+  worker, its content script runs only on the client's own domains, and the
+  visible text of a page is treated as untrusted data, never as instructions.
 
 The default platform-owner privacy rule is part of the design: the owner sees
 organizations, plans and audit metadata, **not** client documents or

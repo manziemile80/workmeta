@@ -308,3 +308,7 @@ class PackageRead(BaseModel):
     signing_key_id: str | None
     public_key: str | None
     published_at: datetime | None
+    # The exact canonical JSON the signature covers. A browser verifies the
+    # signature over these bytes instead of re-deriving them, because the
+    # canonical form of a number is not portable between languages.
+    canonical_manifest: str | None = None

@@ -29,6 +29,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.main import app
+from app.services import extension_signing
 from app.services.ai import ChatCompletion, FakeAIProvider, get_ai_provider
 from app.services.extension_signing import (
     canonical_json,
@@ -461,6 +462,19 @@ async def test_the_package_is_signed_when_a_key_is_configured(
     tampered["name"] = "something else"
     assert not verify_manifest(tampered, package["signature"])
     assert canonical_json(package["manifest"])
+    # The package carries the exact bytes the signature covers, so a browser
+    # can verify it without re-serialising the manifest.
+    assert package["canonical_manifest"] == canonical_json(
+        package["manifest"]
+    ).decode("utf-8")
+    assert extension_signing.verify_bytes(
+        package["canonical_manifest"].encode("utf-8"),
+        package["signature"],
+    )
+    assert not extension_signing.verify_bytes(
+        b"something else",
+        package["signature"],
+    )
 
 
 async def test_sensitive_actions_need_a_confirmation(
