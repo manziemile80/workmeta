@@ -24,9 +24,10 @@ it is told that the material is untrusted data.
 
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass, field
+
+import structlog
 
 from app.services.media import (
     MediaCapabilityUnavailable,
@@ -34,7 +35,7 @@ from app.services.media import (
     build_timed_frame_extractor,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Frames are compared after this normalisation, so "Sales  Screen" and
 # "sales screen" count as the same screen.
