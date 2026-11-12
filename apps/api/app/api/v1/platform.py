@@ -139,7 +139,6 @@ async def create_plan(
         max_assistants=payload.max_assistants,
         max_documents=payload.max_documents,
         max_storage_bytes=payload.max_storage_bytes,
-        max_extensions=payload.max_extensions,
         max_submodels=payload.max_submodels,
         monthly_token_allowance=payload.monthly_token_allowance,
         monthly_request_allowance=payload.monthly_request_allowance,

@@ -8,13 +8,8 @@
  */
 
 import type {
-  ActionDecision,
-  ActionPlan,
   ActionType,
-  ExtensionSummary,
-  GuidanceResponse,
   LoginResponse,
-  PackageResponse,
   ProcedureStep,
   SubmodelActionDecision,
   SubmodelActionPlan,
@@ -36,11 +31,6 @@ export type PanelMessage =
   | { kind: "sign-out" }
   | { kind: "session" }
   | { kind: "read-page" }
-  | { kind: "guidance"; extensionId: string; question: string }
-  | { kind: "propose-action"; extensionId: string; actionType: ActionType; description: string; steps: ProcedureStep[] }
-  | { kind: "confirm-action"; extensionId: string; planId: string; confirmed: boolean }
-  | { kind: "complete-action"; extensionId: string; planId: string; succeeded: boolean; result: Record<string, unknown> }
-  | { kind: "package"; extensionId: string }
   | { kind: "submodels" }
   | { kind: "submodel-guidance"; submodelId: string; question: string }
   | { kind: "submodel-propose-action"; submodelId: string; actionType: ActionType; description: string; steps: ProcedureStep[] }
@@ -54,22 +44,8 @@ export interface SessionState {
   memberships: LoginResponse["memberships"];
   /** The page the agent currently looks at, when it may read it. */
   page: { url: string; title: string } | null;
-  /** The published extensions that recognise the current page. */
-  matches: ExtensionSummary[];
-  /** The last guidance answer, kept so the panel can render it. */
-  guidance: GuidanceResponse | null;
-  /** The action plan waiting for the user's confirmation. */
-  pendingAction: { decision: ActionDecision; extensionId: string } | null;
-  /** The last action the agent reported. */
-  lastAction: ActionPlan | null;
-  /** The signed package and whether it verified. */
-  package: {
-    manifest: PackageResponse | null;
-    signatureValid: boolean;
-    signatureReason: string;
-  } | null;
   /**
-   * The trained submodels this organization can use.
+   * The trained models this organization can use.
    *
    * A submodel may have been trained here or installed from a package; either
    * way it carries its own workflows.

@@ -45,11 +45,11 @@ function stubFetch(
 test("the session token is sent as a bearer token", async () => {
   const { calls, client } = stubFetch(() => ({
     status: 200,
-    payload: { id: "ext-1" },
+    payload: { id: "sub-1" },
   }));
   client.setToken("secret-token");
 
-  await client.guidance("org-1", "ext-1", "How do I issue a receipt?");
+  await client.submodelGuidance("org-1", "sub-1", "How do I issue a receipt?");
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].headers.Authorization, "Bearer secret-token");
@@ -90,7 +90,7 @@ test("the error envelope becomes a readable error", async () => {
   }));
 
   await assert.rejects(
-    () => client.recognize("org-1", "https://ebm.example.com/"),
+    () => client.submodels("org-1"),
     (error: unknown) => {
       const failure = error as ApiError;
       assert.ok(failure instanceof ApiError);
@@ -103,24 +103,13 @@ test("the error envelope becomes a readable error", async () => {
   );
 });
 
-test("a recognition request carries the page address", async () => {
-  const { calls, client } = stubFetch(() => ({ status: 200, payload: [] }));
-
-  await client.recognize("org-1", "https://ebm.example.com/receipts?a=1");
-
-  assert.match(
-    calls[0].url,
-    /\/organizations\/org-1\/extensions\/recognize\?url=https%3A%2F%2Febm\.example\.com%2Freceipts%3Fa%3D1$/,
-  );
-});
-
 test("a guidance request sends the question and the page context", async () => {
   const { calls, client } = stubFetch(() => ({
     status: 200,
     payload: { answer: "Open the sales screen." },
   }));
 
-  await client.guidance("org-1", "ext-1", "How do I issue a receipt?", {
+  await client.submodelGuidance("org-1", "sub-1", "How do I issue a receipt?", {
     url: "https://ebm.example.com/",
     text: "Sales screen",
   });
@@ -129,21 +118,6 @@ test("a guidance request sends the question and the page context", async () => {
   assert.equal(body.question, "How do I issue a receipt?");
   assert.equal(body.context.url, "https://ebm.example.com/");
   assert.equal(body.context.text, "Sales screen");
-});
-
-test("a confirmation is recorded with the user's answer", async () => {
-  const { calls, client } = stubFetch(() => ({
-    status: 200,
-    payload: { id: "plan-1", status: "confirmed" },
-  }));
-
-  await client.confirmAction("org-1", "ext-1", "plan-1", false);
-
-  assert.equal(
-    calls[0].url,
-    "https://api.example.com/api/v1/organizations/org-1/extensions/ext-1/actions/plan-1/confirm",
-  );
-  assert.deepEqual(JSON.parse(calls[0].body ?? "{}"), { confirmed: false });
 });
 
 test("signing out revokes the session on the server", async () => {
@@ -181,7 +155,7 @@ test("a network failure is reported as such", async () => {
   const client = new WorkMetaClient("https://api.example.com/api/v1");
   try {
     await assert.rejects(
-      () => client.recognize("org-1", "https://ebm.example.com/"),
+      () => client.submodels("org-1"),
       (error: unknown) => {
         const failure = error as ApiError;
         assert.ok(failure instanceof ApiError);

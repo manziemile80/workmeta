@@ -147,7 +147,7 @@ async def answer_with_submodel(
         )
 
     blocks, used_workflows = _workflow_blocks(
-        workflows, max_characters=settings.extension_analysis_max_characters
+        workflows, max_characters=settings.analysis_max_characters
     )
     system = (
         f"SYSTEM: {submodel.system_name} (version {submodel.system_version}).\n"

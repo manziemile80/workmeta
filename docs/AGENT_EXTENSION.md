@@ -5,9 +5,7 @@
 > do; it never decides for itself.
 
 This document describes the agent that runs **in the browser**. The platform
-side it talks to is described in
-[Trained Extensions](TRAINED_EXTENSIONS.md) and in
-[Submodels](SUBMODELS.md).
+side it talks to is described in [Submodels](SUBMODELS.md).
 
 ---
 
@@ -19,7 +17,7 @@ A Chrome/Edge extension (Manifest V3) with three parts:
 |---|---|
 | `src/background/` | The service worker. It holds the session token and is the **only** part that talks to the API. |
 | `src/content/` | A content script that runs only on the client's trained domains. It reports which page is open and returns visible text **only when the user asks**. |
-| `src/sidepanel/` | The assistant panel: sign in, see which system the page belongs to, ask a question, confirm an action. |
+| `src/sidepanel/` | The assistant panel: sign in, pick a trained model, ask a question, confirm an action. |
 
 There is one codebase. Packaging rewrites the manifest and the configuration
 for a client; the code is identical.
@@ -85,10 +83,9 @@ languages).
 1. The client administrator packages the agent for their organisation.
 2. Staff install the ZIP (Chrome → *Load unpacked*, or the enterprise
    policy) and sign in with their work account.
-3. When they open a trained system, the agent recognises it and offers
-   guidance for that system and version.
-4. When they pick a **submodel** — a trained model for a task — the agent asks
-   it directly, whether it was trained here or installed from a package.
+3. When they pick a **submodel** — a model trained from a video demo of a
+   task — the agent asks it directly, whether it was trained here or
+   installed from a package.
 5. When they ask a question, the agent answers from the approved procedures,
    with the steps and where to click.
 6. When an action is proposed, the client's policy decides. If it is
@@ -149,12 +146,11 @@ a valid user login for that client.
 |---|---|
 | `POST /auth/login` with `kind: "extension"` | Sign in. Returns a bearer token instead of a cookie. |
 | `GET /auth/me` | Check the stored session is still valid. |
-| `GET /organizations/{org}/extensions/recognize?url=…` | Which published extension recognises this page. |
-| `POST /organizations/{org}/extensions/{id}/guidance` | Grounded steps for the question, cited to the approved procedures. |
-| `POST /organizations/{org}/extensions/{id}/actions` | Ask whether an action may be performed. |
-| `POST …/actions/{plan}/confirm` | Record the user's confirmation or refusal. |
-| `POST …/actions/{id}/actions/{plan}/complete` | Report that the action ran. |
-| `GET /organizations/{org}/extensions/{id}/package` | The signed package and the bytes its signature covers. |
+| `GET /organizations/{org}/submodels` | The trained models this organization can use. |
+| `POST /organizations/{org}/submodels/{id}/guidance` | Grounded steps for the question, cited to the approved workflows. |
+| `POST /organizations/{org}/submodels/{id}/actions` | Ask whether an action may be performed. |
+| `POST …/submodels/{id}/actions/{plan}/confirm` | Record the user's confirmation or refusal. |
+| `POST …/submodels/{id}/actions/{plan}/complete` | Report that the action ran. |
 | `GET /organizations/{org}/submodels` | The trained models this organization can use. |
 | `POST /organizations/{org}/submodels/{id}/guidance` | Grounded steps from a submodel's own approved workflows. |
 | `POST /organizations/{org}/submodels/{id}/actions` | Ask whether an action may be performed, under the submodel's policy. |

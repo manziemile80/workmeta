@@ -106,9 +106,9 @@ export function SubmodelsPanel({ orgId }: { orgId: string }) {
             WorkMeta AI Submodels
           </h2>
           <p className="mt-1 max-w-2xl text-sm text-ink-500">
-            Train a model on how your staff actually do a piece of work. The
-            workflows it learns travel inside a signed package, so a copy
-            installed on another computer works on its own.
+            Record the task once, upload the demo, and the model works out the
+            steps. Train it, check it, then download it as a package that works
+            on any other computer.
           </p>
         </div>
       </header>
@@ -322,7 +322,8 @@ function CreateSubmodel({
               className="mt-1.5 w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
             />
             <span className="mt-1 block text-xs text-ink-400">
-              Write it the way your staff would ask for it.
+              Write it the way your staff would ask for it. You will upload a
+              video demo of exactly this task next.
             </span>
           </label>
           <label className="block">
@@ -677,7 +678,6 @@ function Materials({
     },
     onError: (e: unknown) => setError(errorMessage(e)),
   });
-
   const read = useMutation({
     mutationFn: (materialId: string) =>
       readSubmodelMaterial(orgId, submodel.id, materialId),
@@ -703,13 +703,39 @@ function Materials({
   return (
     <div>
       <h4 className="inline-flex items-center gap-2 text-sm font-semibold text-ink-900">
-        <FileText className="h-4 w-4 text-teal-600" aria-hidden="true" />
-        Training material
+        <MonitorPlay className="h-4 w-4 text-teal-600" aria-hidden="true" />
+        Video demo
       </h4>
       <p className="mt-1 text-xs text-ink-500">
-        Upload a recording of the task. The model reads it as a sequence of
-        screens and works out what was done on each one.
+        Record the task being done and upload it here. The model reads the
+        recording as a sequence of screens and works out the action that was
+        performed on each one.
       </p>
+
+      <div className="mt-3 rounded-xl border border-dashed border-teal-500/40 bg-teal-500/5 p-4">
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">
+          {upload.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Upload className="h-4 w-4" aria-hidden="true" />
+          )}
+          {upload.isPending ? "Reading the demo…" : "Upload a video demo"}
+          <input
+            type="file"
+            className="hidden"
+            accept="video/*"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) upload.mutate(file);
+              event.target.value = "";
+            }}
+          />
+        </label>
+        <p className="mt-2 text-xs text-ink-500">
+          MP4, WebM or MOV. The demo is read as soon as it is uploaded, so you
+          can check what the model saw before you train.
+        </p>
+      </div>
 
       <div className="mt-3 space-y-2">
         {(materials.data ?? []).map((material) => (
@@ -722,69 +748,76 @@ function Materials({
           />
         ))}
         {materials.data?.length === 0 ? (
-          <p className="text-sm text-ink-400">No material yet.</p>
+          <p className="text-sm text-ink-400">
+            No demo yet. Upload a recording of the task.
+          </p>
         ) : null}
       </div>
 
-      <form
-        className="mt-4 space-y-2"
-        onSubmit={(event: FormEvent) => {
-          event.preventDefault();
-          setError(null);
-          addNote.mutate();
-        }}
-      >
-        <input
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          required
-          minLength={2}
-          placeholder="Written procedure title"
-          className="w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
-        />
-        <textarea
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          required
-          minLength={2}
-          rows={3}
-          placeholder="Describe the operation step by step."
-          className="w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
-        />
-        {error ? (
-          <p className="flex items-center gap-2 rounded-xl bg-danger-500/10 px-4 py-3 text-sm text-danger-500">
-            <AlertTriangle className="h-4 w-4" aria-hidden="true" /> {error}
-          </p>
-        ) : null}
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="submit"
-            disabled={addNote.isPending}
-            className="inline-flex items-center gap-2 rounded-full bg-mist-100 px-4 py-2 text-sm font-semibold text-ink-700 hover:bg-mist-200 disabled:opacity-60"
-          >
-            {addNote.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <Plus className="h-4 w-4" aria-hidden="true" />
-            )}
-            Add written procedure
-          </button>
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-mist-300 px-4 py-2 text-sm font-semibold text-ink-700 hover:border-teal-500 hover:text-teal-700">
-            <Upload className="h-4 w-4" aria-hidden="true" />
-            Upload recording or audio
-            <input
-              type="file"
-              className="hidden"
-              accept="video/*,audio/*"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) upload.mutate(file);
-                event.target.value = "";
-              }}
-            />
-          </label>
-        </div>
-      </form>
+      <details className="mt-4">
+        <summary className="cursor-pointer text-sm font-semibold text-ink-700">
+          Written steps or an audio instruction
+        </summary>
+        <form
+          className="mt-3 space-y-2"
+          onSubmit={(event: FormEvent) => {
+            event.preventDefault();
+            setError(null);
+            addNote.mutate();
+          }}
+        >
+          <input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            required
+            minLength={2}
+            placeholder="Written procedure title"
+            className="w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
+          />
+          <textarea
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            required
+            minLength={2}
+            rows={3}
+            placeholder="Describe the operation step by step."
+            className="w-full rounded-xl border border-mist-300 bg-white px-4 py-2.5 text-sm text-ink-900 outline-none focus:border-teal-500"
+          />
+          {error ? (
+            <p className="flex items-center gap-2 rounded-xl bg-danger-500/10 px-4 py-3 text-sm text-danger-500">
+              <AlertTriangle className="h-4 w-4" aria-hidden="true" /> {error}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="submit"
+              disabled={addNote.isPending}
+              className="inline-flex items-center gap-2 rounded-full bg-mist-100 px-4 py-2 text-sm font-semibold text-ink-700 hover:bg-mist-200 disabled:opacity-60"
+            >
+              {addNote.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Plus className="h-4 w-4" aria-hidden="true" />
+              )}
+              Add written procedure
+            </button>
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-mist-300 px-4 py-2 text-sm font-semibold text-ink-700 hover:border-teal-500 hover:text-teal-700">
+              <Mic className="h-4 w-4" aria-hidden="true" />
+              Upload an audio instruction
+              <input
+                type="file"
+                className="hidden"
+                accept="audio/*"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) upload.mutate(file);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          </div>
+        </form>
+      </details>
     </div>
   );
 }

@@ -456,9 +456,6 @@ def test_only_the_media_upload_paths_get_the_larger_body_limit() -> None:
     assert is_media_upload_path(
         "/api/v1/organizations/abc/submodels/def/materials/upload"
     )
-    assert is_media_upload_path(
-        "/api/v1/organizations/abc/extensions/def/materials/upload"
-    )
     # Everything else keeps the small cap.
     assert not is_media_upload_path("/api/v1/organizations/abc/submodels/def")
     assert not is_media_upload_path(

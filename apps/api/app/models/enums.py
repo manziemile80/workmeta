@@ -71,55 +71,6 @@ class UsageKind(StrEnum):
     extraction = "extraction"
 
 
-class ExtensionStatus(StrEnum):
-    """Lifecycle of a trained extension."""
-
-    draft = "draft"
-    training = "training"
-    ready = "ready"
-    published = "published"
-    retired = "retired"
-
-
-class ExtensionTargetKind(StrEnum):
-    web = "web"
-    desktop = "desktop"
-
-
-class MaterialKind(StrEnum):
-    document = "document"
-    video = "video"
-    audio = "audio"
-    note = "note"
-
-
-class MaterialStatus(StrEnum):
-    stored = "stored"
-    extracting = "extracting"
-    ready = "ready"
-    failed = "failed"
-    archived = "archived"
-
-
-class ProcedureStatus(StrEnum):
-    draft = "draft"
-    approved = "approved"
-    rejected = "rejected"
-
-
-class ExtensionTestOutcome(StrEnum):
-    passed = "passed"
-    failed = "failed"
-    error = "error"
-
-
-class ExtensionActionStatus(StrEnum):
-    proposed = "proposed"
-    confirmed = "confirmed"
-    executed = "executed"
-    rejected = "rejected"
-
-
 class SubmodelStatus(StrEnum):
     """The lifecycle of a submodel."""
 

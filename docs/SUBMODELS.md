@@ -1,40 +1,47 @@
 # WorkMeta AI Submodels
 
-> A submodel is a **trained model for a task**, not an extension for a system.
-> It is trained from recordings of how the work is really done, it can be
-> tested before anyone relies on it, and it is published as a **signed package**
-> that installs on another computer and works there on its own.
+> A submodel is a **trained model for a task**. It is trained from a **video
+> demo** of how the work is really done, it can be tested before anyone relies
+> on it, and it is published as a **signed package** that installs on another
+> computer and works there on its own.
 
 ---
 
 ## 1. What a submodel is
 
-A trained extension ([TRAINED_EXTENSIONS.md](TRAINED_EXTENSIONS.md)) is bound to
-one tenant, one assistant and one system at one version. Its knowledge is
-*retrieved* from that tenant's documents, so it only works where it was
-trained.
+A client records their staff doing a piece of work — issue a receipt in EBM,
+register a student in CAMIS, apply for a permit on a portal — and uploads the
+recording. The platform reads the recording as a **timeline of screens and
+actions**, and the model writes that down as workflows. The result is a model
+that can be tested, exported, installed on another computer and used there on
+its own.
 
-A **submodel** is different in one decisive way: **it carries its own
-knowledge**.
+The one property that makes it different from anything else on the platform:
+**it carries its own knowledge**.
 
-| | Trained extension | Submodel |
-|---|---|---|
-| Trained for | one system at one version | one **task** |
-| Knowledge lives in | the tenant's documents, retrieved at runtime | the workflows inside the submodel |
-| Needs the training material again? | yes | **no** |
-| Needs the training machine? | yes | **no** |
-| Installable on another computer? | not as a model | **yes** — it is the whole point |
-| Who may use it | the tenant that trained it | any organization that installs the package |
+| | Submodel |
+|---|---|
+| Trained for | one **task** |
+| Knowledge lives in | the workflows inside the submodel |
+| Needs the training material again? | **no** |
+| Needs the training machine? | **no** |
+| Installable on another computer? | **yes** — it is the whole point |
+| Who may use it | any organization that installs the package |
 
 So the lifecycle is:
 
 ```
-create ──▶ add material ──▶ train ──▶ approve ──▶ test ──▶ download
-                                                                  │
-                        install on another computer ◀────────────┘
+create ──▶ upload the video demo ──▶ train ──▶ approve ──▶ test ──▶ download
+                                                              │
+                        install on another computer ◀──────────┘
                                  │
                                  └──▶ it works immediately, no training
 ```
+
+The **video demo is the primary input**. A recording is uploaded, read straight
+away into the screens it shows and what changed between them, and the training
+reads that timeline. Written steps and audio instructions are supported as
+extras, but the demo is what the feature is built around.
 
 ## 2. The data model
 
@@ -353,7 +360,7 @@ no page matching is needed, because a submodel carries its own workflows — and
 it behaves identically whether the model was trained there or installed from a
 package.
 
-An action a submodel proposes goes through the same decision as an extension
+An action a submodel proposes goes through the same decision as any other
 action: the server answers under the submodel's own policy, a sensitive action
 waits for the user's confirmation, and a refused action is never reported as
 performed.
@@ -373,8 +380,8 @@ performed.
 | Setting | Default | Meaning |
 |---|---|---|
 | `max_submodels` (plan) | 1 on Free | How many submodels a client may hold (imported ones count) |
-| `extension_analysis_max_characters` | 120000 | Bound on the material sent for training |
-| `extension_analysis_max_output_tokens` | 6000 | Bound on the training answer |
+| `analysis_max_characters` | 120000 | Bound on the material sent for training |
+| `analysis_max_output_tokens` | 6000 | Bound on the training answer |
 | `media_video_frame_interval_seconds` | 5 | How often a recording is sampled |
 | `media_video_max_frames` | 60 | Maximum frames read from a recording |
 | `OCR_ENGINE` | `none` | `rapidocr`, `tesseract` or `auto`; `none` disables image reading |

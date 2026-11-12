@@ -232,11 +232,13 @@ async def collect_material_text(
     *,
     org_id: uuid.UUID,
     submodel: Submodel,
-) -> list[tuple[str, str]]:
+) -> tuple[list[tuple[str, str]], dict[str, int]]:
     """Gather everything that can be analysed, in reading order.
 
-    Returns ``(label, text)`` pairs. The label tells the model which material
-    the text came from, so it can cite it and the client can see the source.
+    Returns the ``(label, text)`` pairs and a summary of what was read. The
+    label tells the model which material the text came from, so it can cite
+    it and the client can see the source. The summary says how many video
+    demos, screens and written steps the training actually looked at.
     """
     materials = await session.scalars(
         select(SubmodelMaterial)
@@ -247,16 +249,23 @@ async def collect_material_text(
         .order_by(SubmodelMaterial.created_at.asc())
     )
     sections: list[tuple[str, str]] = []
+    summary = {"videos": 0, "screens": 0, "notes": 0, "audio": 0}
     for material in materials:
         if material.kind == "note":
             text = (material.note_text or "").strip()
             if text:
                 sections.append((material.title, text))
+                summary["notes"] += 1
             continue
         if material.kind in ("video", "audio"):
             text = (material.extracted_text or "").strip()
             if text:
                 sections.append((material.title, text))
+                if material.kind == "video":
+                    summary["videos"] += 1
+                    summary["screens"] += int(material.extracted_units or 0)
+                else:
+                    summary["audio"] += 1
             continue
         if material.kind == "document" and material.document_id:
             from app.models.document_chunk import DocumentChunk
@@ -272,7 +281,7 @@ async def collect_material_text(
             text = "\n".join(chunk.content for chunk in chunks).strip()
             if text:
                 sections.append((material.title, text))
-    return sections
+    return sections, summary
 
 
 def _build_prompt(
@@ -313,13 +322,15 @@ async def train_submodel(
     ai: AIProvider,
     actor_user_id: uuid.UUID | None = None,
     actor_role: str | None = None,
-) -> tuple[list[SubmodelProcedure], int, int]:
+) -> tuple[list[SubmodelProcedure], int, int, dict[str, int]]:
     """Analyse the training material and store the workflows as drafts.
 
-    Returns ``(workflows, analysed_materials, analysed_characters)``.
+    Returns ``(workflows, analysed_materials, analysed_characters, summary)``,
+    where the summary says how many video demos, screens and written steps
+    were read.
     """
     settings = get_settings()
-    sections = await collect_material_text(
+    sections, summary = await collect_material_text(
         session, org_id=org_id, submodel=submodel
     )
     if not sections:
@@ -330,7 +341,7 @@ async def train_submodel(
         )
 
     prompt = _build_prompt(
-        submodel, sections, max_characters=settings.extension_analysis_max_characters
+        submodel, sections, max_characters=settings.analysis_max_characters
     )
     characters = sum(len(text) for _, text in sections)
 
@@ -338,7 +349,7 @@ async def train_submodel(
         session,
         org_id=org_id,
         estimated_tokens=min(
-            settings.extension_analysis_max_output_tokens,
+            settings.analysis_max_output_tokens,
             max(2_000, characters // 3),
         ),
         operation="submodel_training",
@@ -348,7 +359,7 @@ async def train_submodel(
             ChatMessage(role="system", content=ANALYSIS_SYSTEM_PROMPT),
             ChatMessage(role="user", content=prompt),
         ],
-        max_tokens=settings.extension_analysis_max_output_tokens,
+        max_tokens=settings.analysis_max_output_tokens,
         temperature=0.0,
     )
     await quota.reconcile_ai_tokens(
@@ -389,6 +400,8 @@ async def train_submodel(
                 "submodel_id": str(submodel.id),
                 "workflows": len(workflows),
                 "materials": len(sections),
+                "videos": summary["videos"],
+                "screens": summary["screens"],
             },
         )
     )
@@ -412,10 +425,12 @@ async def train_submodel(
             "workflows": len(workflows),
             "materials": len(sections),
             "characters": characters,
+            "videos": summary["videos"],
+            "screens": summary["screens"],
         },
     )
     await session.flush()
-    return workflows, len(sections), characters
+    return workflows, len(sections), characters, summary
 
 
 def content_changed(

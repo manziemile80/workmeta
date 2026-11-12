@@ -423,8 +423,8 @@ workmeta/
 
 > The stages below are the original plan. The delivered increments are
 > numbered as in the README (Stages 0–6, then 9 self-service registration,
-> 10 trained extensions, 11 the installed agent); their delivered scope is
-> in sections 14–16 of this document.
+> 11 the installed agent, 12 WorkMeta AI Submodels, 13 the trained extensions
+> removed); their delivered scope is in sections 14–17 of this document.
 
 | Stage | What gets built | Done when | Est. |
 |---|---|---|---|
@@ -627,7 +627,7 @@ Implemented in migration `20261110_0005` (`subscription_plans`,
 
 ## 16. Stage 11 delivered scope — the installed agent
 
-The platform side of trained extensions (Stage 10) defines the runtime
+The platform side of WorkMeta AI Submodels (Stage 12) defines the runtime
 contract; Stage 11 is the **client-side agent** that speaks it. See
 `docs/AGENT_EXTENSION.md`.
 
@@ -638,10 +638,11 @@ contract; Stage 11 is the **client-side agent** that speaks it. See
 2. **Sign-in** — `POST /auth/login` with `kind: "extension"` returns a bearer
    token, so the agent never depends on the browser's cookie jar. The token
    stays in `chrome.storage.local` and is used only by the service worker.
-3. **Recognition and guidance** — the agent asks `…/extensions/recognize` which
-   published extension recognises the page, and `…/extensions/{id}/guidance`
-   for cited steps. The visible text of the page is sent only when the user
-   asks a question about it.
+3. **Guidance from the trained models** — the agent lists the organization's
+   submodels and asks the picked one `…/submodels/{id}/guidance` for cited
+   steps. No page matching is needed: a submodel carries its own workflows,
+   whether it was trained here or installed from a package. The visible text
+   of the page is sent only when the user asks a question about it.
 4. **Authorised actions** — the agent proposes an action, the server decides
    under the client's own policy, and a sensitive action needs the user's
    explicit confirmation before it runs. The plan records who confirmed what.
@@ -666,10 +667,10 @@ contract; Stage 11 is the **client-side agent** that speaks it. See
 
 ## 17. Stage 12 delivered scope — WorkMeta AI Submodels
 
-A **submodel** is a trained model for a *task*, not an extension for a system.
-It is the unit a client trains on recordings of real work, tests, and then
-publishes as a signed package that installs on another computer and works
-there on its own. See `docs/SUBMODELS.md`.
+A **submodel** is a trained model for a *task*. It is the unit a client trains
+on a video demo of real work, tests, and then publishes as a signed package
+that installs on another computer and works there on its own. See
+`docs/SUBMODELS.md`.
 
 1. **Data model** — five new tables in migration `20261112_0012`:
    `submodels`, `submodel_materials`, `submodel_procedures`, `submodel_tests`
@@ -679,13 +680,12 @@ there on its own. See `docs/SUBMODELS.md`.
    `max_submodels` (NULL means unlimited; the Free plan starts at one) and
    `quota.guard_submodel_create` enforces it for both trained and imported
    submodels.
-2. **A separate, parallel subsystem** — submodels do not touch the trained
-   extensions. An extension is bound to one tenant, one assistant and one
-   system at one version and retrieves its knowledge from the tenant's
-   documents. A submodel **carries its own workflows**, so it is portable: an
-   installed copy works with no training material, no tenant documents and no
-   contact with the machine that trained it. Everything that existed before
-   still behaves exactly as it did.
+2. **Portable by construction** — a submodel **carries its own workflows**, so
+   it is self-contained: an installed copy works with no training material, no
+   tenant documents and no contact with the machine that trained it.
+   (Stage 13 removed the older trained extensions, whose knowledge was
+   retrieved from the tenant's documents; the submodel is the only trained
+   model on the platform now.)
 3. **Video-based training** — `app/services/media.py` gained a timestamped
    frame extractor and `app/services/video_analysis.py` turns a recording into
    a deterministic **timeline**: frames with timestamps → OCR per frame →
@@ -693,7 +693,8 @@ there on its own. See `docs/SUBMODELS.md`.
    states are the detected actions. The model is then asked to *name* those
    actions as ordered steps, never to summarise a video. A sensitive step
    (submits, moves money, deletes, sends) is marked and always needs the
-   user's confirmation.
+   user's confirmation. **The demo is read as soon as it is uploaded**, so the
+   timeline exists before training runs.
    Reading a recording needs no system binary: PyAV carries the codec
    libraries and an ONNX OCR engine carries its models, both in the `media`
    pip extra (`pip install -e ".[media]"`). The system `ffmpeg` and
@@ -724,16 +725,12 @@ there on its own. See `docs/SUBMODELS.md`.
    document, so the media upload paths get their own body limit
    (`MAX_MEDIA_UPLOAD_BYTES`) while every other route keeps the small cap,
    and the proxies allow a large body and a long timeout on that path only.
-8. **Uploading a recording** — a training video is far larger than a
-   document, so the media upload paths get their own body limit
-   (`MAX_MEDIA_UPLOAD_BYTES`) while every other route keeps the small cap,
-   and the proxies allow a large body and a long timeout on that path only.
 9. **The installed agent** — the MV3 side panel lists the organization's
    submodels and lets the user pick one. A picked submodel is asked
    **directly** — no page matching is needed, because it carries its own
    workflows — and it behaves the same whether it was trained there or
    installed from a package. A submodel action goes through the same
-   server-side decision as an extension action.
+   server-side decision with confirmation for sensitive steps.
 10. **Tests** — 30 database-free unit tests (`tests/test_submodel_unit.py`)
    covering the permission policy, the frame→state→transition timeline, the
    parsing of the model's answer, the withdrawal of an approval when the
@@ -745,5 +742,48 @@ there on its own. See `docs/SUBMODELS.md`.
    installed copy working on its own, a tampered package being refused, the
    denied-action guarantee, the confirmation requirement, cross-tenant
    isolation and **training a submodel from a real recording**.
+
+---
+
+## 18. Stage 13 delivered scope — the trained extensions removed
+
+The trained extensions (the original Stage 10) are gone. A submodel is the
+only trained model on the platform, and it is trained from a **video demo**
+of the task.
+
+1. **Backend removed** — the `extensions` router, models, schemas and services
+   (`app/api/v1/extensions.py`, `app/models/extension.py`,
+   `app/schemas/extension.py`, `app/services/extensions.py`,
+   `app/services/procedure_extraction.py`, `app/services/extension_runtime.py`)
+   are deleted, together with the `ExtensionStatus`, `MaterialKind`,
+   `MaterialStatus`, `ProcedureStatus`, `ExtensionTestOutcome` and
+   `ExtensionActionStatus` enums and `quota.guard_extension_create`. The
+   plan's `max_extensions` column is carried over into `max_submodels`.
+2. **Database migration `20261113_0013`** — carries `max_extensions` over into
+   `max_submodels` for plans that never had a submodel limit, then drops the
+   five extension tables (`extensions`, `training_materials`,
+   `extension_procedures`, `extension_tests`, `extension_action_plans`). The
+   DDL is taken from the migration that created the tables, so the two can
+   never drift. The downgrade restores the schema (not the rows). The shared
+   signing key (`EXTENSION_SIGNING_PRIVATE_KEY`) stays: it signs the branded
+   agent configuration and the submodel packages.
+3. **Console** — the **Extensions** tab is removed from the web console;
+   **Submodels** is the only training surface.
+4. **The installed agent speaks submodels only** — page recognition, the
+   per-system guidance and the agent-package manifest handling are removed
+   from the MV3 code. The side panel lists the organization's submodels, asks
+   the picked one directly, and still confirms sensitive actions through the
+   server-side decision.
+5. **The video demo is the primary input** — uploading a recording reads it
+   straight away into the timeline of screens and changes (the same read the
+   `read` endpoint performs), so the material is ready to train on without a
+   second click. Written steps and audio instructions remain available under
+   a collapsed section. Training reports how many video demos and screens it
+   read, and asks for another demo when nothing was found.
+6. **Production reads recordings with nothing installed** — the API image
+   installs the `media` pip extra (PyAV + the ONNX OCR engine), so a demo can
+   be read on a deployment without `ffmpeg` or `tesseract`. The
+   `extension_analysis_*` settings are renamed to `analysis_max_characters` /
+   `analysis_max_output_tokens`.
 
 

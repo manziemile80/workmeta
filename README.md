@@ -14,9 +14,9 @@ one maintainable core, never from forked codebases.
 > security hardening, rate limiting, TrustedHost, body limits, webhook
 > re-verification, Dockerfiles, prod Compose + TLS proxy, billing worker,
 > `/metrics`, backup/restore scripts and extended CI (Stage 6) →
-> self-service registration (Stage 9) → trained extensions for institutional
-> systems (Stage 10) → the installed MV3 agent (Stage 11) → WorkMeta AI
-> Submodels: trainable, downloadable models (Stage 12).
+> self-service registration (Stage 9) → the installed MV3 agent (Stage 11) →
+> WorkMeta AI Submodels: models trained from a video demo of the task
+> (Stage 12) → the trained extensions removed (Stage 13).
 > See [docs/PLAN.md](docs/PLAN.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
@@ -37,9 +37,9 @@ one maintainable core, never from forked codebases.
 | Billing & quotas | ✅ Stage 5 | Plans, checkout, webhooks, quotas, billing UI, platform admin |
 | Production hardening | ✅ Stage 6 | Rate limits, TrustedHost, body caps, webhook re-verify, Docker/prod Compose, workers, metrics, backups |
 | Self-service registration | ✅ Stage 9 | Sign-up page, per-client organization, Free plan, live verification |
-| Trained extensions | ✅ Stage 10 | Per-client extensions for institutional systems: training material, extracted procedures, tests, signed package, authorised actions |
-| Installed agent | ✅ Stage 11 | One MV3 codebase: signs in, recognises the trained system on screen, gives cited guidance, confirms actions before they run |
-| WorkMeta AI Submodels | ✅ Stage 12 | Trainable, downloadable models for a task: read a recording as a sequence of screens and actions, approve the workflows, test them, download a signed package and install it on another computer where it works on its own |
+| Installed agent | ✅ Stage 11 | One MV3 codebase: signs in, asks the trained models, confirms actions before they run |
+| WorkMeta AI Submodels | ✅ Stage 12 | Models trained from a video demo of the task: the recording becomes a timeline of screens and actions, the workflows are approved and tested, and the model is downloaded as a signed package that works on any other computer |
+| Trained extensions removed | ✅ Stage 13 | The extension subsystem is gone; submodels are the only trained model on the platform |
 
 Nothing is simulated in the UI: every value is read from the API.
 
@@ -47,7 +47,7 @@ Stages 4–5 added the real dashboards, streaming, OCR, document deletion,
 billing, subscriptions and platform administration. Stage 6 hardened
 production: see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md),
 [docs/SECURITY.md](docs/SECURITY.md) and [docs/BACKUP.md](docs/BACKUP.md).
-Stage 12 added WorkMeta AI Submodels — trainable, downloadable models: see
+Stage 12 added WorkMeta AI Submodels — models trained from a video demo: see
 [docs/SUBMODELS.md](docs/SUBMODELS.md).
 
 ---
@@ -338,6 +338,7 @@ Copy `.env.example` to `.env` or generate it. Never commit `.env`.
 | `OCR_ENGINE` | `none`, `rapidocr`, `tesseract` or `auto` — OCR for images, scanned PDFs and the frames of a recording |
 | `MEDIA_VIDEO_FRAME_INTERVAL_SECONDS`, `MEDIA_VIDEO_MAX_FRAMES` | How a training recording is sampled |
 | `EXTENSION_SIGNING_PRIVATE_KEY` | Ed25519 key for the agent packages and the submodel packages (Stage 5/12) |
+| `OCR_ENGINE`, `MEDIA_VIDEO_*`, `ANALYSIS_MAX_*` | Reading a video demo and bounding the training |
 | `SEED_OWNER_EMAIL`, `SEED_OWNER_PASSWORD` | First platform owner (Stage 1) |
 | `BILLING_PROVIDER`, `FLUTTERWAVE_*`, `PAYSTACK_*` | Payment gateway (Stage 5, sandbox first) |
 | `ALLOWED_HOSTS`, `MAX_REQUEST_BODY_BYTES`, `RATE_LIMIT_*` | Host/body/rate hardening (Stage 6) |
@@ -357,7 +358,6 @@ workmeta/
 │   │   │   ├── api/v1/      auth, orgs, members, invitations, assistants,
 │   │   │   │                documents, conversations, products, audit,
 │   │   │   │                billing, platform, usage, health (metrics),
-│   │   │   │                extensions (training, tests, package, actions),
 │   │   │   │                submodels (training, tests, package, actions)
 │   │   │   ├── core/        config, security, logging, errors, middleware
 │   │   │   │                (rate limit, body cap, TrustedHost, metrics)
@@ -367,7 +367,7 @@ workmeta/
 │   │   │   ├── prompts/     versioned grounded-answer policy
 │   │   │   ├── schemas/     Pydantic request/response contracts
 │   │   │   ├── services/    auth, storage, AI provider, extraction, retrieval,
-│   │   │   │                billing, payments, quota, extensions, submodels,
+│   │   │   │                billing, payments, quota, submodels,
 │   │   │   │                video analysis, submodel packaging
 │   │   │   └── workers/     ingestion queue worker + billing worker
 │   │   ├── alembic/         migrations (schema, RLS policies, grants)
@@ -387,7 +387,7 @@ workmeta/
 ├── tools/scripts/           generate_env, seed_owner, backup, restore,
 │                            payment-sandbox validator, extension packaging
 ├── docs/                    PLAN, DEPLOYMENT, SECURITY, BACKUP,
-│                            TRAINED_EXTENSIONS (per-client training),
+│                            SUBMODELS (models trained from a video demo),
 │                            AGENT_EXTENSION (the installed agent),
 │                            SUBMODELS (trainable, downloadable models)
 └── .env.example

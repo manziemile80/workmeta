@@ -1,18 +1,14 @@
 """WorkMeta AI Submodels — trainable, portable models for real work.
 
-A **submodel** is a trained model for a *task* rather than for a system. A
-client records how their staff do a piece of work — issue a receipt in EBM,
-register a student in CAMIS, apply for a permit on a portal — and the AI
-extracts the workflow from the recording. The result is a submodel that can be
-tested, exported, installed on another computer and used there on its own.
+A **submodel** is a trained model for a *task*. A client records how their
+staff do a piece of work — issue a receipt in EBM, register a student in
+CAMIS, apply for a permit on a portal — and the AI extracts the workflow from
+the recording. The result is a submodel that can be tested, exported,
+installed on another computer and used there on its own.
 
-The difference from a trained extension is what a submodel *carries*:
-
-* ``extensions`` are bound to one tenant, one assistant and one system at one
-  version, and their knowledge is retrieved from that tenant's documents.
-* ``submodels`` are **portable**. A submodel carries its own procedures, so
-  an installed copy works on a machine that has never seen the training
-  material and never talks to the machine that trained it.
+A submodel is **portable**: it carries its own workflows, so an installed
+copy works on a machine that has never seen the training material and never
+talks to the machine that trained it.
 
 The tables:
 

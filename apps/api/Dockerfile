@@ -14,7 +14,10 @@ ENV PATH="/opt/venv/bin:${PATH}"
 WORKDIR /src
 COPY apps/api/pyproject.toml apps/api/README.md ./
 COPY apps/api/app ./app
-RUN pip install .
+# The "media" extra brings the video decoder (PyAV) and the OCR engine, so a
+# deployment can read a training demo without anything installed on the
+# machine. Drop it if the deployment never reads a recording.
+RUN pip install ".[media]"
 
 FROM python:3.12-slim-bookworm AS runtime
 

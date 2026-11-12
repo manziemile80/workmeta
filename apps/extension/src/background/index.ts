@@ -22,14 +22,8 @@ import type {
   SessionState,
   WorkerResponse,
 } from "../lib/messages.ts";
-import { verifyPackage } from "../lib/signature.ts";
 import type {
-  ActionDecision,
-  ActionPlan,
-  ExtensionSummary,
-  GuidanceResponse,
   LoginResponse,
-  PackageResponse,
   PageContext,
   SubmodelActionDecision,
   SubmodelActionPlan,
@@ -44,15 +38,6 @@ interface WorkerState {
   page: { url: string; title: string } | null;
   /** The visible text of the page, read only when the user asks for it. */
   pageText: string;
-  matches: ExtensionSummary[];
-  guidance: GuidanceResponse | null;
-  pendingAction: { decision: ActionDecision; extensionId: string } | null;
-  lastAction: ActionPlan | null;
-  package: {
-    manifest: PackageResponse | null;
-    signatureValid: boolean;
-    signatureReason: string;
-  } | null;
   submodels: SubmodelSummary[];
   submodelGuidance: SubmodelGuidanceResponse | null;
   pendingSubmodelAction: {
@@ -69,11 +54,6 @@ const state: WorkerState = {
   session: null,
   page: null,
   pageText: "",
-  matches: [],
-  guidance: null,
-  pendingAction: null,
-  lastAction: null,
-  package: null,
   submodels: [],
   submodelGuidance: null,
   pendingSubmodelAction: null,
@@ -115,11 +95,6 @@ function publicState(): SessionState {
     organization: state.session?.active_organization ?? null,
     memberships: state.session?.memberships ?? [],
     page: state.page,
-    matches: state.matches,
-    guidance: state.guidance,
-    pendingAction: state.pendingAction,
-    lastAction: state.lastAction,
-    package: state.package,
     submodels: state.submodels,
     submodelGuidance: state.submodelGuidance,
     pendingSubmodelAction: state.pendingSubmodelAction,
@@ -173,10 +148,6 @@ async function signOut(): Promise<WorkerResponse> {
   }
   await clearSession();
   state.session = null;
-  state.matches = [];
-  state.guidance = null;
-  state.pendingAction = null;
-  state.lastAction = null;
   state.submodels = [];
   state.submodelGuidance = null;
   state.pendingSubmodelAction = null;
@@ -217,178 +188,15 @@ async function readPage(): Promise<WorkerResponse> {
     if (!info || !mayReadUrl(info.url, state.config.allowedDomains)) {
       state.page = null;
       state.pageText = "";
-      state.matches = [];
       return { ok: true, data: publicState() };
     }
     state.page = { url: info.url, title: info.title };
     state.pageText = info.text ?? "";
-    const orgId = state.session?.active_organization?.id ?? state.config.orgId;
-    try {
-      state.matches = state.client
-        ? await state.client.recognize(orgId, info.url)
-        : [];
-    } catch {
-      state.matches = [];
-    }
     return { ok: true, data: publicState() };
   } catch {
     state.page = null;
     state.pageText = "";
-    state.matches = [];
     return { ok: true, data: publicState() };
-  }
-}
-
-async function guidance(
-  extensionId: string,
-  question: string,
-): Promise<WorkerResponse> {
-  if (!(await ensureReady()) || !state.client || !state.config) {
-    return { ok: false, error: state.error ?? "The extension is not configured." };
-  }
-  try {
-    const orgId = state.session?.active_organization?.id ?? state.config.orgId;
-    const context: PageContext = {};
-    if (state.page) {
-      context.url = state.page.url;
-    }
-    if (state.pageText) {
-      context.text = state.pageText;
-    }
-    state.guidance = await state.client.guidance(
-      orgId,
-      extensionId,
-      question,
-      context,
-    );
-    return { ok: true, data: state.guidance };
-  } catch (error) {
-    const message =
-      error instanceof ApiError ? error.message : "Could not get guidance.";
-    return { ok: false, error: message, code: "guidance_failed" };
-  }
-}
-
-async function proposeAction(
-  extensionId: string,
-  actionType: Parameters<WorkMetaClient["proposeAction"]>[2],
-  description: string,
-  steps: Parameters<WorkMetaClient["proposeAction"]>[4],
-): Promise<WorkerResponse> {
-  if (!(await ensureReady()) || !state.client || !state.config) {
-    return { ok: false, error: state.error ?? "The extension is not configured." };
-  }
-  try {
-    const orgId = state.session?.active_organization?.id ?? state.config.orgId;
-    const decision = await state.client.proposeAction(
-      orgId,
-      extensionId,
-      actionType,
-      description,
-      steps,
-    );
-    state.pendingAction = { decision, extensionId };
-    return { ok: true, data: publicState() };
-  } catch (error) {
-    const message =
-      error instanceof ApiError ? error.message : "Could not request the action.";
-    return { ok: false, error: message, code: "action_failed" };
-  }
-}
-
-/**
- * Record the user's confirmation.
- *
- * A refusal is recorded too: the plan then says the user declined, which is
- * what happened.
- */
-async function confirmAction(
-  extensionId: string,
-  planId: string,
-  confirmed: boolean,
-): Promise<WorkerResponse> {
-  if (!(await ensureReady()) || !state.client || !state.config) {
-    return { ok: false, error: state.error ?? "The extension is not configured." };
-  }
-  try {
-    const orgId = state.session?.active_organization?.id ?? state.config.orgId;
-    const plan = await state.client.confirmAction(
-      orgId,
-      extensionId,
-      planId,
-      confirmed,
-    );
-    state.lastAction = plan;
-    state.pendingAction = null;
-    return { ok: true, data: publicState() };
-  } catch (error) {
-    const message =
-      error instanceof ApiError ? error.message : "Could not record the answer.";
-    return { ok: false, error: message, code: "confirm_failed" };
-  }
-}
-
-async function completeAction(
-  extensionId: string,
-  planId: string,
-  succeeded: boolean,
-  result: Record<string, unknown>,
-): Promise<WorkerResponse> {
-  if (!(await ensureReady()) || !state.client || !state.config) {
-    return { ok: false, error: state.error ?? "The extension is not configured." };
-  }
-  try {
-    const orgId = state.session?.active_organization?.id ?? state.config.orgId;
-    const plan = await state.client.completeAction(
-      orgId,
-      extensionId,
-      planId,
-      succeeded,
-      result,
-    );
-    state.lastAction = plan;
-    return { ok: true, data: publicState() };
-  } catch (error) {
-    const message =
-      error instanceof ApiError ? error.message : "Could not record the result.";
-    return { ok: false, error: message, code: "complete_failed" };
-  }
-}
-
-/**
- * Download the signed package and check the signature.
- *
- * The agent shows the procedures it was given, so it checks that they are the
- * ones the platform published before it acts on them.
- *
- * The package is checked against the key from the agent's own **signed**
- * configuration, not against the key the package carries. A package therefore
- * cannot introduce its own signer.
- */
-async function loadPackage(extensionId: string): Promise<WorkerResponse> {
-  if (!(await ensureReady()) || !state.client || !state.config) {
-    return { ok: false, error: state.error ?? "The extension is not configured." };
-  }
-  try {
-    const orgId = state.session?.active_organization?.id ?? state.config.orgId;
-    const pkg = await state.client.package(orgId, extensionId);
-    const check = await verifyPackage({
-      canonicalManifest: pkg.canonical_manifest ?? "",
-      signature: pkg.signature ?? "",
-      publicKey: state.config.publicKey || (pkg.public_key ?? ""),
-      expectedKeyId: state.config.signingKeyId || null,
-      signingKeyId: pkg.signing_key_id,
-    });
-    state.package = {
-      manifest: pkg,
-      signatureValid: check.valid,
-      signatureReason: check.reason,
-    };
-    return { ok: true, data: state.package };
-  } catch (error) {
-    const message =
-      error instanceof ApiError ? error.message : "Could not read the package.";
-    return { ok: false, error: message, code: "package_failed" };
   }
 }
 
@@ -553,30 +361,6 @@ async function handlePanelMessage(
       return { ok: true, data: publicState() };
     case "read-page":
       return readPage();
-    case "guidance":
-      return guidance(message.extensionId, message.question);
-    case "propose-action":
-      return proposeAction(
-        message.extensionId,
-        message.actionType,
-        message.description,
-        message.steps,
-      );
-    case "confirm-action":
-      return confirmAction(
-        message.extensionId,
-        message.planId,
-        message.confirmed,
-      );
-    case "complete-action":
-      return completeAction(
-        message.extensionId,
-        message.planId,
-        message.succeeded,
-        message.result,
-      );
-    case "package":
-      return loadPackage(message.extensionId);
     case "submodels":
       return loadSubmodels();
     case "submodel-guidance":
@@ -619,18 +403,9 @@ async function handleContentMessage(
   if (!mayReadUrl(message.url, state.config.allowedDomains)) {
     state.page = null;
     state.pageText = "";
-    state.matches = [];
     return { ok: true, data: publicState() };
   }
   state.page = { url: message.url, title: message.title };
-  const orgId = state.session?.active_organization?.id ?? state.config.orgId;
-  try {
-    state.matches = state.client
-      ? await state.client.recognize(orgId, message.url)
-      : [];
-  } catch {
-    state.matches = [];
-  }
   return { ok: true, data: publicState() };
 }
 

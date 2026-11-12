@@ -8,14 +8,9 @@
  */
 
 import type {
-  ActionDecision,
-  ActionPlan,
   ActionType,
-  ExtensionSummary,
-  GuidanceResponse,
   LoginResponse,
   PageContext,
-  PackageResponse,
   ProcedureStep,
   SubmodelActionDecision,
   SubmodelActionPlan,
@@ -172,77 +167,6 @@ export class WorkMetaClient {
       method: "POST",
       body: { org_id: orgId },
     });
-  }
-
-  /** Which published extension recognises the page the user is on. */
-  recognize(orgId: string, url: string): Promise<ExtensionSummary[]> {
-    return this.request<ExtensionSummary[]>(
-      `/organizations/${orgId}/extensions/recognize?url=${encodeURIComponent(url)}`,
-    );
-  }
-
-  /** Step-by-step guidance for one trained system. */
-  guidance(
-    orgId: string,
-    extensionId: string,
-    question: string,
-    context?: PageContext,
-  ): Promise<GuidanceResponse> {
-    return this.request<GuidanceResponse>(
-      `/organizations/${orgId}/extensions/${extensionId}/guidance`,
-      { method: "POST", body: { question, context: context ?? {} } },
-    );
-  }
-
-  /** Ask whether an action may be performed. */
-  proposeAction(
-    orgId: string,
-    extensionId: string,
-    actionType: ActionType,
-    description: string,
-    steps: ProcedureStep[] = [],
-  ): Promise<ActionDecision> {
-    return this.request<ActionDecision>(
-      `/organizations/${orgId}/extensions/${extensionId}/actions`,
-      {
-        method: "POST",
-        body: { action_type: actionType, description, steps },
-      },
-    );
-  }
-
-  /** Record the user's confirmation (or refusal) of a sensitive action. */
-  confirmAction(
-    orgId: string,
-    extensionId: string,
-    planId: string,
-    confirmed: boolean,
-  ): Promise<ActionPlan> {
-    return this.request<ActionPlan>(
-      `/organizations/${orgId}/extensions/${extensionId}/actions/${planId}/confirm`,
-      { method: "POST", body: { confirmed } },
-    );
-  }
-
-  /** Report that the action ran. */
-  completeAction(
-    orgId: string,
-    extensionId: string,
-    planId: string,
-    succeeded: boolean,
-    result: Record<string, unknown> = {},
-  ): Promise<ActionPlan> {
-    return this.request<ActionPlan>(
-      `/organizations/${orgId}/extensions/${extensionId}/actions/${planId}/complete`,
-      { method: "POST", body: { succeeded, result } },
-    );
-  }
-
-  /** The signed package, with the exact bytes the signature covers. */
-  package(orgId: string, extensionId: string): Promise<PackageResponse> {
-    return this.request<PackageResponse>(
-      `/organizations/${orgId}/extensions/${extensionId}/package`,
-    );
   }
 
   // -------------------------------------------------------------------------

@@ -28,7 +28,6 @@ class PlanRead(BaseModel):
     max_assistants: int | None
     max_documents: int | None
     max_storage_bytes: int | None
-    max_extensions: int | None
     max_submodels: int | None
     monthly_token_allowance: int | None
     monthly_request_allowance: int | None
@@ -52,7 +51,6 @@ class PlanCreate(BaseModel):
     max_assistants: int | None = Field(default=None, ge=0)
     max_documents: int | None = Field(default=None, ge=0)
     max_storage_bytes: int | None = Field(default=None, ge=0)
-    max_extensions: int | None = Field(default=None, ge=0)
     max_submodels: int | None = Field(default=None, ge=0)
     monthly_token_allowance: int | None = Field(default=None, ge=0)
     monthly_request_allowance: int | None = Field(default=None, ge=0)
@@ -78,7 +76,6 @@ class PlanUpdate(BaseModel):
     max_assistants: int | None = Field(default=None, ge=0)
     max_documents: int | None = Field(default=None, ge=0)
     max_storage_bytes: int | None = Field(default=None, ge=0)
-    max_extensions: int | None = Field(default=None, ge=0)
     max_submodels: int | None = Field(default=None, ge=0)
     monthly_token_allowance: int | None = Field(default=None, ge=0)
     monthly_request_allowance: int | None = Field(default=None, ge=0)

@@ -154,7 +154,10 @@ class Settings(BaseSettings):
     # OCR (optional). "none" keeps image/scanned-PDF uploads disabled.
     # "rapidocr" needs nothing installed on the machine, "tesseract" needs the
     # Tesseract binary, and "auto" takes whichever is installed.
-    ocr_engine: Literal["none", "tesseract", "rapidocr", "auto"] = "none"
+    # "auto" picks the best engine this machine has: Tesseract when it is
+    # installed, else the ONNX engine that ships in the "media" pip extra.
+    # "none" turns OCR off, and a recording is then read without its text.
+    ocr_engine: Literal["none", "tesseract", "rapidocr", "auto"] = "auto"
     ocr_language: str = "eng"
     ocr_timeout_seconds: int = 30
     ocr_max_image_pixels: int = 40_000_000
@@ -187,7 +190,8 @@ class Settings(BaseSettings):
     storage_backend: Literal["local", "s3"] = "local"
     storage_dir: str = "./var/storage"
 
-    # Extension signing
+    # Signing of the packages that leave this deployment: the branded agent
+    # (the browser extension) and the submodel packages. One key signs both.
     extension_signing_key_id: str = "dev-1"
     extension_signing_private_key: str = ""
 
@@ -196,8 +200,8 @@ class Settings(BaseSettings):
     # the context window or the tenant's token allowance.
     media_video_frame_interval_seconds: float = 5.0
     media_video_max_frames: int = 60
-    extension_analysis_max_characters: int = 120_000
-    extension_analysis_max_output_tokens: int = 6_000
+    analysis_max_characters: int = 120_000
+    analysis_max_output_tokens: int = 6_000
 
     # First-run owner
     seed_owner_email: str = ""
@@ -274,21 +278,21 @@ class Settings(BaseSettings):
             raise ValueError("chat_max_output_tokens must be between 1 and 8192")
         return value
 
-    @field_validator("extension_analysis_max_output_tokens")
+    @field_validator("analysis_max_output_tokens")
     @classmethod
     def _valid_analysis_tokens(cls, value: int) -> int:
         if not 256 <= value <= 32_000:
             raise ValueError(
-                "extension_analysis_max_output_tokens must be between 256 and 32000"
+                "analysis_max_output_tokens must be between 256 and 32000"
             )
         return value
 
-    @field_validator("extension_analysis_max_characters")
+    @field_validator("analysis_max_characters")
     @classmethod
     def _valid_analysis_characters(cls, value: int) -> int:
         if not 1_000 <= value <= 1_000_000:
             raise ValueError(
-                "extension_analysis_max_characters must be between 1000 and 1000000"
+                "analysis_max_characters must be between 1000 and 1000000"
             )
         return value
 

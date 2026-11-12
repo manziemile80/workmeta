@@ -205,6 +205,10 @@ class SubmodelTrainingResult(BaseModel):
     workflows: list[SubmodelWorkflowRead]
     analysed_materials: int
     analysed_characters: int
+    # How many video demos, screens and written steps were read.
+    videos: int = 0
+    screens: int = 0
+    notes: int = 0
     message: str
 
 

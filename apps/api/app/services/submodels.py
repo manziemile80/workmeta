@@ -33,7 +33,7 @@ from app.models.submodel import (
 )
 
 # The action types a submodel may be asked to perform. The same vocabulary the
-# trained extensions use, so the runtime is consistent across both.
+# installed agent uses, so the runtime is consistent across the platform.
 KNOWN_ACTION_TYPES = frozenset(
     {
         "navigate",

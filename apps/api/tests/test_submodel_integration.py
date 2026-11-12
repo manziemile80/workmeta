@@ -599,15 +599,16 @@ async def test_a_client_trains_a_submodel_from_a_video(
 ) -> None:
     """The whole promise, with a real recording.
 
-    A recording is uploaded, read into the screens it shows and what changed
-    between them, and trained on. What the model then receives is a timeline
-    of screens and changes — not a summary of a video.
+    A recording is uploaded, read straight away into the screens it shows and
+    what changed between them, and trained on. What the model then receives is
+    a timeline of screens and changes — not a summary of a video.
     """
     tenant = await _tenant(client, owner_token, test_prefix, "submodel-video")
     org_id = tenant.organization["id"]
     submodel = await _create_submodel(client, tenant.token, org_id)
 
-    # 1. Upload the recording.
+    # 1. Upload the recording. It is read as part of the upload: the response
+    # is already the timeline of screens and changes.
     recording = _recording()
     uploaded = await client.post(
         f"/api/v1/organizations/{org_id}/submodels/{submodel['id']}"
@@ -619,9 +620,13 @@ async def test_a_client_trains_a_submodel_from_a_video(
     assert uploaded.status_code == 201, uploaded.text
     material = uploaded.json()
     assert material["kind"] == "video"
-    assert material["status"] == "stored"
+    assert material["status"] == "ready"
+    assert material["extracted_units"] >= 2
+    timeline = material["extracted_text"]
+    assert "SCREEN 1" in timeline
+    assert "WHAT CHANGED BETWEEN THE SCREENS" in timeline
 
-    # 2. Read it: the material becomes a timeline of screens and changes.
+    # 2. Reading it again works too: the same timeline comes back.
     read = await client.post(
         f"/api/v1/organizations/{org_id}/submodels/{submodel['id']}"
         f"/materials/{material['id']}/read",
@@ -631,9 +636,6 @@ async def test_a_client_trains_a_submodel_from_a_video(
     read_material = read.json()
     assert read_material["status"] == "ready"
     assert read_material["extracted_units"] >= 2
-    timeline = read_material["extracted_text"]
-    assert "SCREEN 1" in timeline
-    assert "WHAT CHANGED BETWEEN THE SCREENS" in timeline
 
     # 3. Train on it.
     trained = await client.post(

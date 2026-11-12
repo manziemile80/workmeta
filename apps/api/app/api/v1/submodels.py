@@ -210,7 +210,7 @@ async def submodel_limits(
         "plan_code": subscription.plan.code,
         "max_submodels": subscription.plan.max_submodels,
         "video_frames": settings.media_video_max_frames,
-        "analysis_max_characters": settings.extension_analysis_max_characters,
+        "analysis_max_characters": settings.analysis_max_characters,
         "signing_configured": bool(settings.extension_signing_private_key),
     }
 
@@ -400,11 +400,15 @@ async def upload_material(
     session: AsyncSession = Depends(get_session),  # noqa: B008
     storage: StorageProvider = Depends(get_storage),  # noqa: B008
 ) -> SubmodelMaterialRead:
-    """Store a recording or an audio instruction as training material.
+    """Upload a training video or an audio instruction.
 
-    The file is stored even when this deployment cannot read it yet; the
-    material then says exactly what is missing instead of pretending it was
-    analysed.
+    The recording is **read straight away**: the frames are decoded, the text
+    on them is read, and the material becomes the timeline of screens and
+    changes the training reads. That is the whole point of a video demo — the
+    client records how the work is done and the model works out the actions.
+
+    A deployment that cannot read the recording says so on the material and
+    the client can try again; the file is never lost.
     """
     submodel = await _owned_submodel(
         session, org_id=context.org_id, submodel_id=submodel_id
@@ -446,7 +450,7 @@ async def upload_material(
         size_bytes=len(raw),
         storage_key=key,
         sha256=hashlib.sha256(raw).hexdigest(),
-        status="stored",
+        status="extracting",
         created_by=context.user.id,
     )
     session.add(material)
@@ -462,6 +466,36 @@ async def upload_material(
         metadata={"material_id": str(material.id), "kind": material.kind},
         request=request,
     )
+
+    # The demo is read straight away, so the client sees the timeline before
+    # it trains. A failure here is reported on the material, not as a lost
+    # upload.
+    try:
+        text, units = await _read_into_timeline(session, storage, material)
+    except MediaCapabilityUnavailable as exc:
+        material.status = "failed"
+        material.error_message = str(exc)[:1000]
+    else:
+        material.extracted_text = text
+        material.extracted_units = units
+        material.status = "ready"
+
+    await session.flush()
+    await audit.record(
+        session,
+        action="submodel.material_read",
+        org_id=context.org_id,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
+        resource_type="submodel",
+        resource_id=str(submodel.id),
+        metadata={
+            "material_id": str(material.id),
+            "units": material.extracted_units or 0,
+            "status": material.status,
+        },
+        request=request,
+    )
     await session.refresh(material)
     await session.commit()
     return SubmodelMaterialRead.model_validate(material)
@@ -469,6 +503,35 @@ async def upload_material(
 
 def _material_key(org_id: uuid.UUID, submodel_id: uuid.UUID) -> str:
     return f"{org_id}/submodels/{submodel_id}/{uuid.uuid4().hex}"
+
+
+async def _read_into_timeline(
+    session: AsyncSession,
+    storage: StorageProvider,
+    material: SubmodelMaterial,
+) -> tuple[str, int]:
+    """Read a recording into the screens it shows and what changed between them.
+
+    Returns the text and how many screens it found. A deployment that cannot
+    read the recording raises ``MediaCapabilityUnavailable``, which the
+    caller turns into a material that says exactly what is missing.
+    """
+    if not material.storage_key:
+        raise MediaCapabilityUnavailable("This material has no stored file.")
+    raw = await storage.read(material.storage_key)
+    if material.kind == SubmodelMaterialKind.video.value:
+        analysis = await read_recording(raw, mime_type=material.mime_type or "")
+        return render_timeline(analysis), len(analysis.states)
+    transcriber = build_audio_transcriber()
+    if transcriber is None:
+        raise MediaCapabilityUnavailable(
+            "Transcribing audio needs a transcription model on this "
+            "deployment. Upload the written instructions instead."
+        )
+    text = await transcriber.transcribe(
+        raw, filename=material.filename or "instruction.mp3"
+    )
+    return text, len(text.split())
 
 
 @router.post(
@@ -515,25 +578,8 @@ async def read_material(
     material.error_message = None
     await session.flush()
 
-    raw = await storage.read(material.storage_key)
     try:
-        if material.kind == SubmodelMaterialKind.video.value:
-            analysis = await read_recording(
-                raw, mime_type=material.mime_type or ""
-            )
-            text = render_timeline(analysis)
-            units = len(analysis.states)
-        else:
-            transcriber = build_audio_transcriber()
-            if transcriber is None:
-                raise MediaCapabilityUnavailable(
-                    "Transcribing audio needs a transcription model on this "
-                    "deployment. Upload the written instructions instead."
-                )
-            text = await transcriber.transcribe(
-                raw, filename=material.filename or "instruction.mp3"
-            )
-            units = len(text.split())
+        text, units = await _read_into_timeline(session, storage, material)
     except MediaCapabilityUnavailable as exc:
         material.status = "failed"
         material.error_message = str(exc)[:1000]
@@ -634,7 +680,7 @@ async def train(
     submodel.status = SubmodelStatus.training.value
     await session.flush()
     try:
-        workflows, materials, characters = await train_submodel(
+        workflows, materials, characters, summary = await train_submodel(
             session,
             org_id=context.org_id,
             submodel=submodel,
@@ -653,22 +699,38 @@ async def train(
             f"The AI read {materials} piece(s) of material and wrote "
             f"{len(workflows)} workflow(s). Approve the ones that are right."
         )
+        if summary["videos"]:
+            message = (
+                f"The AI read {summary['videos']} video demo(s) "
+                f"({summary['screens']} screens) and wrote {len(workflows)} "
+                "workflow(s). Approve the ones that are right."
+            )
     else:
         # Nothing was found. That is the honest failure mode of a deployment
         # without a real model, and it is said plainly rather than reported
         # like a normal result.
-        message = (
-            "No workflows were found in the training material. Add a "
-            "recording of the task, the manual or the written steps and "
-            "train again — a submodel is never used with an empty workflow "
-            "set."
-        )
+        if summary["videos"]:
+            message = (
+                f"No workflows were found in {summary['videos']} video "
+                "demo(s). Check that the recording shows the task and that "
+                "the screens are readable, then train again — a submodel is "
+                "never used with an empty workflow set."
+            )
+        else:
+            message = (
+                "No workflows were found in the training material. Upload a "
+                "video demo of the task, or the written steps, and train "
+                "again — a submodel is never used with an empty workflow set."
+            )
     result = SubmodelTrainingResult(
         submodel_id=submodel.id,
         training_status=submodel.training_status,
         workflows=[SubmodelWorkflowRead.model_validate(item) for item in workflows],
         analysed_materials=materials,
         analysed_characters=characters,
+        videos=summary["videos"],
+        screens=summary["screens"],
+        notes=summary["notes"],
         message=message,
     )
     await session.commit()
