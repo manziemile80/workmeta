@@ -227,6 +227,30 @@ async def recognize(
 
 
 @router.get(
+    "/limits",
+    response_model=dict,
+    summary="What the plan allows",
+)
+async def extension_limits(
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict:
+    """The plan limits for trained extensions."""
+    from app.services import billing
+
+    subscription = await billing.ensure_subscription(session, context.org_id)
+    settings = get_settings()
+    return {
+        "plan_code": subscription.plan.code,
+        "max_extensions": subscription.plan.max_extensions,
+        "max_submodels": subscription.plan.max_submodels,
+        "video_frames": settings.media_video_max_frames,
+        "analysis_max_characters": settings.extension_analysis_max_characters,
+        "signing_configured": bool(settings.extension_signing_private_key),
+    }
+
+
+@router.get(
     "/{extension_id}",
     response_model=ExtensionRead,
     summary="Read one extension",
@@ -1180,25 +1204,3 @@ async def list_actions(
     )
     return list(rows)
 
-
-@router.get(
-    "/limits",
-    response_model=dict,
-    summary="What the plan allows",
-)
-async def extension_limits(
-    context: OrgContext = Depends(require_org_member),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict:
-    """The plan limits for trained extensions."""
-    from app.services import billing
-
-    subscription = await billing.ensure_subscription(session, context.org_id)
-    settings = get_settings()
-    return {
-        "plan_code": subscription.plan.code,
-        "max_extensions": subscription.plan.max_extensions,
-        "video_frames": settings.media_video_max_frames,
-        "analysis_max_characters": settings.extension_analysis_max_characters,
-        "signing_configured": bool(settings.extension_signing_private_key),
-    }

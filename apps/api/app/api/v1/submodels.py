@@ -192,6 +192,29 @@ async def index(
     return [await _submodel_read(session, row) for row in rows]
 
 
+@router.get("/limits", response_model=dict, summary="What the plan allows")
+async def submodel_limits(
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict:
+    """The plan limits for trained submodels.
+
+    It also says whether this deployment can sign a package, so the console
+    can tell the client that an export would be unsigned.
+    """
+    from app.services import billing
+
+    settings = get_settings()
+    subscription = await billing.ensure_subscription(session, context.org_id)
+    return {
+        "plan_code": subscription.plan.code,
+        "max_submodels": subscription.plan.max_submodels,
+        "video_frames": settings.media_video_max_frames,
+        "analysis_max_characters": settings.extension_analysis_max_characters,
+        "signing_configured": bool(settings.extension_signing_private_key),
+    }
+
+
 @router.get("/{submodel_id}", response_model=SubmodelRead, summary="Read a submodel")
 async def show(
     submodel_id: uuid.UUID,
