@@ -442,3 +442,43 @@ def test_the_package_payload_is_a_plain_document() -> None:
     assert payload["workflows"] == []
     # It has to survive the canonical JSON encoding the signature covers.
     assert extension_signing.canonical_json(payload)
+
+
+# ---------------------------------------------------------------------------
+# Uploading a recording
+# ---------------------------------------------------------------------------
+
+
+def test_only_the_media_upload_paths_get_the_larger_body_limit() -> None:
+    """A recording is far larger than a document; other routes keep the cap."""
+    from app.core.middleware import is_media_upload_path
+
+    assert is_media_upload_path(
+        "/api/v1/organizations/abc/submodels/def/materials/upload"
+    )
+    assert is_media_upload_path(
+        "/api/v1/organizations/abc/extensions/def/materials/upload"
+    )
+    # Everything else keeps the small cap.
+    assert not is_media_upload_path("/api/v1/organizations/abc/submodels/def")
+    assert not is_media_upload_path(
+        "/api/v1/organizations/abc/assistants/def/documents"
+    )
+    assert not is_media_upload_path("/api/v1/auth/login")
+
+
+async def test_a_big_body_is_refused_on_an_ordinary_route(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cap still protects every route that is not a media upload."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "max_request_body_bytes", 64)
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "a@example.com", "password": "x" * 500},
+    )
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "payload_too_large"

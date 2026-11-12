@@ -76,8 +76,6 @@ router = APIRouter(
     prefix="/organizations/{org_id}/extensions", tags=["extensions"]
 )
 
-MAX_MATERIAL_BYTES = 50 * 1024 * 1024
-
 
 async def _assistant(
     session: AsyncSession, *, org_id: uuid.UUID, assistant_id: uuid.UUID
@@ -390,10 +388,11 @@ async def upload_material(
             status_code=422,
             code="invalid_material_type",
         )
-    raw = await file.read(MAX_MATERIAL_BYTES + 1)
-    if len(raw) > MAX_MATERIAL_BYTES:
+    limit = get_settings().max_media_upload_bytes
+    raw = await file.read(limit + 1)
+    if len(raw) > limit:
         raise AppError(
-            "The file is larger than the 50 MB limit.",
+            f"The file is larger than the {limit // (1024 * 1024)} MB limit.",
             status_code=422,
             code="invalid_material",
         )

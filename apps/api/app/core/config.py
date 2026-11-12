@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     database_command_timeout_seconds: int = 30
     database_probe_timeout_seconds: int = 5
 
+    # A training recording is much larger than a document, so the media
+    # upload paths get their own limit. The body-limit middleware applies it
+    # to those paths only, so every other route keeps the small cap.
+    max_media_upload_bytes: int = 256 * 1024 * 1024
     # Sessions (used from Stage 1 onward)
     session_secret: str = ""
     session_ttl_days: int = 7

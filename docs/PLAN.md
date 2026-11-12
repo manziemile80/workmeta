@@ -720,13 +720,21 @@ there on its own. See `docs/SUBMODELS.md`.
 7. **Console** — a new **Submodels** tab in the web console: create, install a
    package, add material, read a recording, train, approve, test, ask and
    download. Everything it shows is read from the API; nothing is simulated.
-8. **The installed agent** — the MV3 side panel lists the organization's
+8. **Uploading a recording** — a training video is far larger than a
+   document, so the media upload paths get their own body limit
+   (`MAX_MEDIA_UPLOAD_BYTES`) while every other route keeps the small cap,
+   and the proxies allow a large body and a long timeout on that path only.
+8. **Uploading a recording** — a training video is far larger than a
+   document, so the media upload paths get their own body limit
+   (`MAX_MEDIA_UPLOAD_BYTES`) while every other route keeps the small cap,
+   and the proxies allow a large body and a long timeout on that path only.
+9. **The installed agent** — the MV3 side panel lists the organization's
    submodels and lets the user pick one. A picked submodel is asked
    **directly** — no page matching is needed, because it carries its own
    workflows — and it behaves the same whether it was trained there or
    installed from a package. A submodel action goes through the same
    server-side decision as an extension action.
-9. **Tests** — 28 database-free unit tests (`tests/test_submodel_unit.py`)
+10. **Tests** — 30 database-free unit tests (`tests/test_submodel_unit.py`)
    covering the permission policy, the frame→state→transition timeline, the
    parsing of the model's answer, the withdrawal of an approval when the
    steps change, and the signature verification (including a package signed

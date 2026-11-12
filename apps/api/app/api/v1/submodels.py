@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OrgContext, require_org_admin, require_org_member
+from app.core.config import get_settings
 from app.core.errors import AppError
 from app.db.session import get_session
 from app.models.enums import (
@@ -86,8 +87,6 @@ from app.services.video_analysis import read_recording, render_timeline
 router = APIRouter(
     prefix="/organizations/{org_id}/submodels", tags=["submodels"]
 )
-
-MAX_MATERIAL_BYTES = 500 * 1024 * 1024
 
 
 async def _owned_submodel(
@@ -395,14 +394,15 @@ async def upload_material(
             status_code=422,
             code="invalid_material_type",
         )
-    raw = await file.read()
+    limit = get_settings().max_media_upload_bytes
+    raw = await file.read(limit + 1)
     if not raw:
         raise AppError(
             "The uploaded file is empty.", status_code=422, code="material_empty"
         )
-    if len(raw) > MAX_MATERIAL_BYTES:
+    if len(raw) > limit:
         raise AppError(
-            "That recording is too large to upload.",
+            f"That recording is larger than the {limit // (1024 * 1024)} MB limit.",
             status_code=413,
             code="material_too_large",
         )

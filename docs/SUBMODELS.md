@@ -380,10 +380,15 @@ performed.
 | `OCR_ENGINE` | `none` | `rapidocr`, `tesseract` or `auto`; `none` disables image reading |
 | `ai_transcription_model` | empty | Speech-to-text model; empty means audio cannot be transcribed |
 | `EXTENSION_SIGNING_PRIVATE_KEY` | empty | Ed25519 key; empty means packages cannot be exported |
+| `MAX_MEDIA_UPLOAD_BYTES` | 256 MiB | How large a recording may be; only the media upload paths get this limit |
 
 The `media` extra (`pip install -e ".[media]"`) installs PyAV, Pillow and the
 ONNX OCR engine, which together make a deployment able to read a recording
 with nothing installed on the machine.
+
+Reading a recording is a long operation, so the proxies allow a large body and
+a long timeout on the media upload path only. The API enforces
+`MAX_MEDIA_UPLOAD_BYTES` itself.
 
 ## 13. What is **not** claimed yet
 

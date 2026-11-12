@@ -330,6 +330,7 @@ Copy `.env.example` to `.env` or generate it. Never commit `.env`.
 | `AI_TIMEOUT_SECONDS`, `AI_TEMPERATURE`, `CHAT_MAX_OUTPUT_TOKENS` | Request timeout and default generation limits |
 | `AI_MAX_RETRIES`, `AI_RETRY_BACKOFF_SECONDS`, `AI_RETRY_MAX_BACKOFF_SECONDS` | Transient-failure retries and bounded backoff |
 | `MAX_UPLOAD_BYTES`, `MAX_DOCUMENT_PAGES` | Upload and PDF page limits |
+| `MAX_MEDIA_UPLOAD_BYTES` | How large a training recording may be (the media upload paths only) |
 | `CHUNK_TOKENS`, `CHUNK_OVERLAP_TOKENS` | Ingestion chunking (default 900 / 150) |
 | `RETRIEVAL_TOP_K`, `RETRIEVAL_MIN_SCORE` | Hybrid retrieval breadth and relevance floor |
 | `INGESTION_MAX_ATTEMPTS`, `WORKER_POLL_SECONDS` | Worker retries and idle polling |
