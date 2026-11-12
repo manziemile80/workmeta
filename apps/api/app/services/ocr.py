@@ -190,7 +190,7 @@ class RapidOCREngine:
         try:
             result = engine(pixels)  # type: ignore[operator]
         except Exception as exc:  # noqa: BLE001 - the OCR engine varies
-            raise OCRError("OCR could not read the image.") from exc
+            raise OCRError(f"OCR could not read the image: {exc}") from exc
         return _join_rapidocr_result(result)
 
     async def extract_image(self, data: bytes, *, mime_type: str) -> str:

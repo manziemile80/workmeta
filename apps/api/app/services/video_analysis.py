@@ -24,6 +24,7 @@ it is told that the material is untrusted data.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 
@@ -32,6 +33,8 @@ from app.services.media import (
     TimestampedFrameExtractor,
     build_timed_frame_extractor,
 )
+
+logger = logging.getLogger(__name__)
 
 # Frames are compared after this normalisation, so "Sales  Screen" and
 # "sales screen" count as the same screen.
@@ -226,13 +229,25 @@ async def read_recording(
         raise MediaCapabilityUnavailable(
             "No frames could be read from the screen recording."
         )
+    logger.info(
+        "recording_frames_extracted",
+        frames=len(frames),
+        first_seconds=round(frames[0][0], 2),
+        last_seconds=round(frames[-1][0], 2),
+        extractor=getattr(extractor, "name", "unknown"),
+    )
 
     readings: list[FrameReading] = []
     for seconds, frame in frames:
         text = ""
         try:
             text = await ocr_reader(frame, mime_type="image/png")
-        except Exception:  # noqa: BLE001 - one unreadable frame is not fatal
+        except Exception as exc:  # noqa: BLE001 - one unreadable frame is not fatal
+            logger.warning(
+                "recording_frame_unreadable",
+                seconds=round(seconds, 2),
+                reason=str(exc)[:300],
+            )
             text = ""
         readings.append(FrameReading(seconds=seconds, text=(text or "").strip()))
 
