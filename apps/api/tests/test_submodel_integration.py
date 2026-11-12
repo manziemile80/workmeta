@@ -14,6 +14,7 @@ machine that trained it.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import os
@@ -554,6 +555,28 @@ async def test_one_client_cannot_see_another_clients_submodels(
     assert trained.status_code == 404, trained.text
 
 
+async def _await_read(
+    client: AsyncClient,
+    token: str,
+    org_id: str,
+    submodel_id: str,
+    material_id: str,
+) -> dict:
+    """Follow a material until its background read finishes."""
+    for _ in range(120):
+        fetched = await client.get(
+            f"/api/v1/organizations/{org_id}/submodels/{submodel_id}"
+            f"/materials/{material_id}",
+            headers=_bearer(token),
+        )
+        assert fetched.status_code == 200, fetched.text
+        material = fetched.json()
+        if material["status"] in ("ready", "failed"):
+            return material
+        await asyncio.sleep(0.05)
+    raise AssertionError("the recording read never finished")
+
+
 def _recording() -> bytes:
     """A small recording that shows three screens of a task in a row."""
     import av
@@ -599,16 +622,16 @@ async def test_a_client_trains_a_submodel_from_a_video(
 ) -> None:
     """The whole promise, with a real recording.
 
-    A recording is uploaded, read straight away into the screens it shows and
-    what changed between them, and trained on. What the model then receives is
-    a timeline of screens and changes — not a summary of a video.
+    A recording is uploaded, read in the background into the screens it shows
+    and what changed between them, and trained on. What the model then
+    receives is a timeline of screens and changes — not a summary of a video.
     """
     tenant = await _tenant(client, owner_token, test_prefix, "submodel-video")
     org_id = tenant.organization["id"]
     submodel = await _create_submodel(client, tenant.token, org_id)
 
-    # 1. Upload the recording. It is read as part of the upload: the response
-    # is already the timeline of screens and changes.
+    # 1. Upload the recording. The read starts in the background: the
+    # response is the material still being read.
     recording = _recording()
     uploaded = await client.post(
         f"/api/v1/organizations/{org_id}/submodels/{submodel['id']}"
@@ -620,21 +643,30 @@ async def test_a_client_trains_a_submodel_from_a_video(
     assert uploaded.status_code == 201, uploaded.text
     material = uploaded.json()
     assert material["kind"] == "video"
-    assert material["status"] == "ready"
+    assert material["status"] == "extracting"
+
+    # 2. The read finishes on its own: follow the material until it is ready.
+    material = await _await_read(
+        client, tenant.token, org_id, submodel["id"], material["id"]
+    )
+    assert material["status"] == "ready", material["error_message"]
     assert material["extracted_units"] >= 2
     timeline = material["extracted_text"]
     assert "SCREEN 1" in timeline
     assert "WHAT CHANGED BETWEEN THE SCREENS" in timeline
 
-    # 2. Reading it again works too: the same timeline comes back.
+    # 3. Reading it again works too: the read is scheduled the same way.
     read = await client.post(
         f"/api/v1/organizations/{org_id}/submodels/{submodel['id']}"
         f"/materials/{material['id']}/read",
         headers=_bearer(tenant.token),
     )
-    assert read.status_code == 200, read.text
-    read_material = read.json()
-    assert read_material["status"] == "ready"
+    assert read.status_code == 202, read.text
+    assert read.json()["status"] == "extracting"
+    read_material = await _await_read(
+        client, tenant.token, org_id, submodel["id"], material["id"]
+    )
+    assert read_material["status"] == "ready", read_material["error_message"]
     assert read_material["extracted_units"] >= 2
 
     # 3. Train on it.

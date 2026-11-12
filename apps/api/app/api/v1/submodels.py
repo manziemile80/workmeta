@@ -15,7 +15,16 @@ import hashlib
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+import structlog
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +32,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import OrgContext, require_org_admin, require_org_member
 from app.core.config import get_settings
 from app.core.errors import AppError
-from app.db.session import get_session
+from app.db.rls import set_rls_context
+from app.db.session import SessionFactory, get_session
 from app.models.enums import (
     SubmodelActionStatus,
     SubmodelMaterialKind,
@@ -87,6 +97,8 @@ from app.services.video_analysis import read_recording, render_timeline
 router = APIRouter(
     prefix="/organizations/{org_id}/submodels", tags=["submodels"]
 )
+
+logger = structlog.get_logger(__name__)
 
 
 async def _owned_submodel(
@@ -340,6 +352,30 @@ async def list_materials(
     return [SubmodelMaterialRead.model_validate(row) for row in rows]
 
 
+@router.get(
+    "/{submodel_id}/materials/{material_id}",
+    response_model=SubmodelMaterialRead,
+    summary="One piece of training material",
+)
+async def get_material(
+    submodel_id: uuid.UUID,
+    material_id: uuid.UUID,
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> SubmodelMaterialRead:
+    """Follow a recording while it is read (status ``extracting``)."""
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    material = await _owned_material(
+        session,
+        org_id=context.org_id,
+        submodel_id=submodel.id,
+        material_id=material_id,
+    )
+    return SubmodelMaterialRead.model_validate(material)
+
+
 @router.post(
     "/{submodel_id}/materials/notes",
     response_model=SubmodelMaterialRead,
@@ -394,6 +430,7 @@ async def add_note(
 async def upload_material(
     submodel_id: uuid.UUID,
     request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),  # noqa: B008 - FastAPI idiom
     title: str | None = Form(default=None),  # noqa: B008 - FastAPI idiom
     context: OrgContext = Depends(require_org_admin),  # noqa: B008
@@ -402,10 +439,11 @@ async def upload_material(
 ) -> SubmodelMaterialRead:
     """Upload a training video or an audio instruction.
 
-    The recording is **read straight away**: the frames are decoded, the text
-    on them is read, and the material becomes the timeline of screens and
-    changes the training reads. That is the whole point of a video demo — the
-    client records how the work is done and the model works out the actions.
+    The recording is **read right after the upload**: the frames are decoded,
+    the text on them is read, and the material becomes the timeline of screens
+    and changes the training reads. The read runs in the background — the
+    response is the material still being read, and the list of materials
+    follows it until it says ``ready``.
 
     A deployment that cannot read the recording says so on the material and
     the client can try again; the file is never lost.
@@ -467,37 +505,18 @@ async def upload_material(
         request=request,
     )
 
-    # The demo is read straight away, so the client sees the timeline before
-    # it trains. A failure here is reported on the material, not as a lost
-    # upload.
-    try:
-        text, units = await _read_into_timeline(session, storage, material)
-    except MediaCapabilityUnavailable as exc:
-        material.status = "failed"
-        material.error_message = str(exc)[:1000]
-    else:
-        material.extracted_text = text
-        material.extracted_units = units
-        material.status = "ready"
-
-    await session.flush()
-    await audit.record(
-        session,
-        action="submodel.material_read",
-        org_id=context.org_id,
-        actor_user_id=context.user.id,
-        actor_role=context.role,
-        resource_type="submodel",
-        resource_id=str(submodel.id),
-        metadata={
-            "material_id": str(material.id),
-            "units": material.extracted_units or 0,
-            "status": material.status,
-        },
-        request=request,
-    )
-    await session.refresh(material)
+    # The demo is read right after the upload, in the background: the read
+    # decodes frames and runs OCR on each, which can take a while on a slow
+    # machine, and no request should wait on that. The response is the
+    # material still being read; the client follows it until it is ready. A
+    # failure is reported on the material, not as a lost upload.
     await session.commit()
+    background_tasks.add_task(
+        read_material_in_background,
+        material_id=material.id,
+        org_id=context.org_id,
+        storage=storage,
+    )
     return SubmodelMaterialRead.model_validate(material)
 
 
@@ -534,15 +553,76 @@ async def _read_into_timeline(
     return text, len(text.split())
 
 
+async def read_material_in_background(
+    *,
+    material_id: uuid.UUID,
+    org_id: uuid.UUID,
+    storage: StorageProvider,
+) -> None:
+    """Read an uploaded recording after the response has been sent.
+
+    The read decodes frames and runs OCR on each, which is slow on a small
+    machine, so it runs outside the request. This owns its database session:
+    the request's session is closed by the time a background task runs. The
+    storage provider travels with the task because it is plain configuration,
+    not tied to the request. The result — the timeline, or the reason the read
+    failed — is written on the material either way.
+    """
+    session = SessionFactory()
+    try:
+        await set_rls_context(session, org_id=org_id)
+        material = await session.get(SubmodelMaterial, material_id)
+        if material is None or material.status == "archived":
+            return
+        try:
+            text, units = await _read_into_timeline(session, storage, material)
+        except MediaCapabilityUnavailable as exc:
+            material.status = "failed"
+            material.error_message = str(exc)[:1000]
+        except Exception as exc:  # noqa: BLE001 - the material says what broke
+            material.status = "failed"
+            material.error_message = (
+                f"The recording could not be read: {exc}"
+            )[:1000]
+            logger.warning(
+                "material_read_failed",
+                material_id=str(material_id),
+                error=str(exc)[:400],
+            )
+        else:
+            material.extracted_text = text
+            material.extracted_units = units
+            material.status = "ready"
+        await audit.record(
+            session,
+            action="submodel.material_read",
+            org_id=org_id,
+            resource_type="submodel",
+            resource_id=str(material.submodel_id),
+            metadata={
+                "material_id": str(material_id),
+                "units": material.extracted_units or 0,
+                "status": material.status,
+            },
+        )
+        await session.commit()
+    except Exception:
+        logger.error("material_read_crashed", material_id=str(material_id))
+        await session.rollback()
+    finally:
+        await session.close()
+
+
 @router.post(
     "/{submodel_id}/materials/{material_id}/read",
     response_model=SubmodelMaterialRead,
+    status_code=202,
     summary="Read a recording into a sequence of screens",
 )
 async def read_material(
     submodel_id: uuid.UUID,
     material_id: uuid.UUID,
-    request: Request,
+    background_tasks: BackgroundTasks,
     context: OrgContext = Depends(require_org_admin),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
     storage: StorageProvider = Depends(get_storage),  # noqa: B008
@@ -550,7 +630,9 @@ async def read_material(
     """Turn a recording into the screens it shows and what changed between them.
 
     This is the step that makes a recording teachable: the material becomes
-    a **timeline** of screens and changes, not a pile of pictures.
+    a **timeline** of screens and changes, not a pile of pictures. The read
+    runs in the background; the answer is the material marked ``extracting``,
+    and the client follows it until it is ready.
     """
     submodel = await _owned_submodel(
         session, org_id=context.org_id, submodel_id=submodel_id
@@ -576,37 +658,13 @@ async def read_material(
 
     material.status = "extracting"
     material.error_message = None
-    await session.flush()
-
-    try:
-        text, units = await _read_into_timeline(session, storage, material)
-    except MediaCapabilityUnavailable as exc:
-        material.status = "failed"
-        material.error_message = str(exc)[:1000]
-        await session.commit()
-        raise AppError(
-            str(exc),
-            status_code=503,
-            code="media_capability_unavailable",
-        ) from exc
-
-    material.extracted_text = text
-    material.extracted_units = units
-    material.status = "ready"
-    await session.flush()
-    await audit.record(
-        session,
-        action="submodel.material_read",
-        org_id=context.org_id,
-        actor_user_id=context.user.id,
-        actor_role=context.role,
-        resource_type="submodel",
-        resource_id=str(submodel.id),
-        metadata={"material_id": str(material.id), "units": units},
-        request=request,
-    )
-    await session.refresh(material)
     await session.commit()
+    background_tasks.add_task(
+        read_material_in_background,
+        material_id=material.id,
+        org_id=context.org_id,
+        storage=storage,
+    )
     return SubmodelMaterialRead.model_validate(material)
 
 
@@ -677,6 +735,20 @@ async def train(
     submodel = await _owned_submodel(
         session, org_id=context.org_id, submodel_id=submodel_id
     )
+    reading = await session.scalar(
+        select(SubmodelMaterial.id).where(
+            SubmodelMaterial.org_id == context.org_id,
+            SubmodelMaterial.submodel_id == submodel_id,
+            SubmodelMaterial.status.in_(("stored", "extracting")),
+        )
+    )
+    if reading is not None:
+        raise AppError(
+            "A recording is still being read. Give it a few seconds, then "
+            "train again.",
+            status_code=409,
+            code="submodel_material_reading",
+        )
     submodel.status = SubmodelStatus.training.value
     await session.flush()
     try:

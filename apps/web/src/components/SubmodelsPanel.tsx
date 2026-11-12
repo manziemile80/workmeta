@@ -652,6 +652,10 @@ function Materials({
   const materials = useQuery({
     queryKey: ["submodel-materials", submodel.id],
     queryFn: () => fetchSubmodelMaterials(orgId, submodel.id),
+    // A recording is read in the background after it is uploaded; follow
+    // the read until every material is ready or failed.
+    refetchInterval: (query) =>
+      query.state.data?.some((m) => m.status === "extracting") ? 2000 : false,
   });
 
   const addNote = useMutation({
@@ -719,7 +723,7 @@ function Materials({
           ) : (
             <Upload className="h-4 w-4" aria-hidden="true" />
           )}
-          {upload.isPending ? "Reading the demo…" : "Upload a video demo"}
+          {upload.isPending ? "Uploading…" : "Upload a video demo"}
           <input
             type="file"
             className="hidden"
@@ -732,8 +736,8 @@ function Materials({
           />
         </label>
         <p className="mt-2 text-xs text-ink-500">
-          MP4, WebM or MOV. The demo is read as soon as it is uploaded, so you
-          can check what the model saw before you train.
+          MP4, WebM or MOV. The demo is read right after the upload — watch the
+          row below until it says ready, then check what the model saw.
         </p>
       </div>
 
@@ -852,6 +856,9 @@ function MaterialRow({
             </p>
             <p className="truncate text-xs text-ink-500">
               {material.kind}
+              {material.status === "extracting"
+                ? " · reading the recording…"
+                : ""}
               {material.status === "failed" && material.error_message
                 ? ` · ${material.error_message}`
                 : ""}

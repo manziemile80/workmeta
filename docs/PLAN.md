@@ -693,8 +693,9 @@ that installs on another computer and works there on its own. See
    states are the detected actions. The model is then asked to *name* those
    actions as ordered steps, never to summarise a video. A sensitive step
    (submits, moves money, deletes, sends) is marked and always needs the
-   user's confirmation. **The demo is read as soon as it is uploaded**, so the
-   timeline exists before training runs.
+   user's confirmation. **The demo is read as soon as it is uploaded** — the
+   read runs in the background and the material says ``extracting`` until the
+   timeline is ready, so no request waits on the OCR.
    Reading a recording needs no system binary: PyAV carries the codec
    libraries and an ONNX OCR engine carries its models, both in the `media`
    pip extra (`pip install -e ".[media]"`). The system `ffmpeg` and
@@ -774,11 +775,12 @@ of the task.
    from the MV3 code. The side panel lists the organization's submodels, asks
    the picked one directly, and still confirms sensitive actions through the
    server-side decision.
-5. **The video demo is the primary input** — uploading a recording reads it
-   straight away into the timeline of screens and changes (the same read the
-   `read` endpoint performs), so the material is ready to train on without a
-   second click. Written steps and audio instructions remain available under
-   a collapsed section. Training reports how many video demos and screens it
+5. **The video demo is the primary input** — uploading a recording starts the
+   read into the timeline of screens and changes right away, in the
+   background (the same read the `read` endpoint schedules), and the console
+   follows the material until it is ready — no request waits on the OCR.
+   Written steps and audio instructions remain available under a collapsed
+   section. Training reports how many video demos and screens it
    read, and asks for another demo when nothing was found.
 6. **Production reads recordings with nothing installed** — the API image
    installs the `media` pip extra (PyAV + the ONNX OCR engine), so a demo can

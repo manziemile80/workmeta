@@ -38,10 +38,12 @@ create ──▶ upload the video demo ──▶ train ──▶ approve ──�
                                  └──▶ it works immediately, no training
 ```
 
-The **video demo is the primary input**. A recording is uploaded, read straight
-away into the screens it shows and what changed between them, and the training
-reads that timeline. Written steps and audio instructions are supported as
-extras, but the demo is what the feature is built around.
+The **video demo is the primary input**. A recording is uploaded, read into the
+screens it shows and what changed between them — the read starts with the
+upload and runs in the background, so the material says `extracting` until the
+timeline is ready — and the training reads that timeline. Written steps and
+audio instructions are supported as extras, but the demo is what the feature is
+built around.
 
 ## 2. The data model
 

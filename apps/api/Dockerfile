@@ -24,7 +24,11 @@ FROM python:3.12-slim-bookworm AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:${PATH}" \
-    APP_ENV=production
+    APP_ENV=production \
+    # onnxruntime sizes its thread pools from the machine, which on a small
+    # container means a pool far larger than the CPU it may use - and memory
+    # to match. Two threads is plenty for one frame at a time.
+    OMP_NUM_THREADS=2
 
 # The OCR engine the "media" extra installs runs through OpenCV, which links
 # against the X11/GL shared libraries even when it never opens a window. The
