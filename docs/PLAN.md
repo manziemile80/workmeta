@@ -687,13 +687,17 @@ there on its own. See `docs/SUBMODELS.md`.
    contact with the machine that trained it. Everything that existed before
    still behaves exactly as it did.
 3. **Video-based training** — `app/services/media.py` gained a timestamped
-   frame extractor (`ffmpeg` + `showinfo`) and `app/services/video_analysis.py`
-   turns a recording into a deterministic **timeline**: frames with timestamps →
-   OCR per frame → consecutive similar frames grouped into UI states →
-   transitions between states are the detected actions. The model is then asked
-   to *name* those actions as ordered steps, never to summarise a video. A
-   sensitive step (submits, moves money, deletes, sends) is marked and always
-   needs the user's confirmation.
+   frame extractor and `app/services/video_analysis.py` turns a recording into
+   a deterministic **timeline**: frames with timestamps → OCR per frame →
+   consecutive similar frames grouped into UI states → transitions between
+   states are the detected actions. The model is then asked to *name* those
+   actions as ordered steps, never to summarise a video. A sensitive step
+   (submits, moves money, deletes, sends) is marked and always needs the
+   user's confirmation.
+   Reading a recording needs no system binary: PyAV carries the codec
+   libraries and an ONNX OCR engine carries its models, both in the `media`
+   pip extra (`pip install -e ".[media]"`). The system `ffmpeg` and
+   Tesseract are still used when they are installed.
 4. **Training, approval and testing** — `POST .../train` writes the extracted
    workflows as **drafts**; a human approves each one; only approved workflows
    are used and only approved workflows are exported. Tests ask a question and
@@ -726,10 +730,12 @@ there on its own. See `docs/SUBMODELS.md`.
    covering the permission policy, the frame→state→transition timeline, the
    parsing of the model's answer, the withdrawal of an approval when the
    steps change, and the signature verification (including a package signed
-   with another key and a tampered package), plus 6 integration tests
+   with another key and a tampered package); 4 more
+   (`tests/test_submodel_media.py`) that read a real recording into a
+   timeline with nothing installed on the machine; and 7 integration tests
    (`tests/test_submodel_integration.py`) covering the full lifecycle, an
    installed copy working on its own, a tampered package being refused, the
-   denied-action guarantee, the confirmation requirement and cross-tenant
-   isolation.
+   denied-action guarantee, the confirmation requirement, cross-tenant
+   isolation and **training a submodel from a real recording**.
 
 

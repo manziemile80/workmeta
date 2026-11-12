@@ -99,9 +99,13 @@ cannot be skipped by calling the API directly.
 
 Video and audio are **optional capabilities**, detected at runtime:
 
-- without `ffmpeg` (or without OCR) a recording cannot be read — the material
-  is stored, the API answers `503 media_capability_unavailable` and says
-  exactly what to upload instead;
+- a recording is decoded with the system `ffmpeg` when it is installed, and
+  otherwise with **PyAV**, which carries the codec libraries in its wheel —
+  so a deployment can read a recording with nothing installed on the machine
+  (`pip install -e ".[media]"`);
+- the text on the frames is read with the OCR engine: the **Tesseract** CLI,
+  or the **ONNX** engine that ships its own models (also part of the `media`
+  extra), selected with `OCR_ENGINE`;
 - without a transcription model an audio instruction cannot be transcribed —
   same behaviour.
 
@@ -248,6 +252,7 @@ operation cannot be completed before the confirmation exists
 | `extension_analysis_max_output_tokens` | 6000 | Bound on the analysis answer |
 | `media_video_frame_interval_seconds` | 5 | How often a recording is sampled |
 | `media_video_max_frames` | 60 | Maximum frames read from a recording |
+| `OCR_ENGINE` | `none` | `rapidocr`, `tesseract` or `auto`; `none` disables image reading |
 | `ai_transcription_model` | empty | Speech-to-text model; empty means audio cannot be transcribed |
 | `EXTENSION_SIGNING_PRIVATE_KEY` | empty | Ed25519 key; empty means packages are published unsigned |
 
@@ -260,9 +265,10 @@ operation cannot be completed before the confirmation exists
 - The installed agent is described in [The Installed Agent](AGENT_EXTENSION.md).
   It is the browser agent that talks to the runtime contract below; the
   desktop companion is a separate deliverable and does not exist yet.
-- Video reading needs `ffmpeg` and OCR; audio transcription needs a
-  transcription model. Both are optional capabilities with honest failure
-  messages, not silent gaps.
+- Video reading needs a decoder and OCR. Both are available as a pip extra
+  (`pip install -e ".[media]"`) that needs nothing on the machine, or as the
+  system `ffmpeg` and Tesseract. When neither is there the API says so
+  instead of pretending the material was analysed.
 - The analysis and the guidance need a real model. A deployment without
   `AI_API_KEY` runs the deterministic offline provider, which extracts nothing:
   the extension stays untrained and the publishing gate keeps refusing. That is

@@ -14,6 +14,7 @@ machine that trained it.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 from collections.abc import Iterator, Sequence
@@ -26,6 +27,14 @@ from app.main import app
 from app.services.ai import ChatCompletion, FakeAIProvider, get_ai_provider
 from app.services.storage import LocalStorage, get_storage
 from tests.test_auth_tenancy_integration import _bearer, _tenant
+
+
+def media_available() -> bool:
+    """Whether this deployment can read a recording without a system binary."""
+    from app.services.media import pyav_available
+    from app.services.ocr import rapidocr_available
+
+    return pyav_available() and rapidocr_available()
 
 pytestmark = [
     pytest.mark.integration,
@@ -543,3 +552,104 @@ async def test_one_client_cannot_see_another_clients_submodels(
         headers=_bearer(second.token),
     )
     assert trained.status_code == 404, trained.text
+
+
+def _recording() -> bytes:
+    """A small recording that shows three screens of a task in a row."""
+    import av
+    from PIL import Image, ImageDraw
+
+    screens = [
+        "EBM Login Username Password Sign in",
+        "EBM Sales New receipt Amount Save",
+        "EBM Receipt Print Total 1200",
+    ]
+    buffer = io.BytesIO()
+    with av.open(buffer, mode="w", format="mp4") as container:
+        try:
+            stream = container.add_stream("libx264", rate=2)
+        except Exception:  # noqa: BLE001 - the fallback is the point
+            stream = container.add_stream("mpeg4", rate=2)
+        stream.width = 640
+        stream.height = 240
+        stream.pix_fmt = "yuv420p"
+        for text in screens:
+            image = Image.new("RGB", (640, 240), "white")
+            ImageDraw.Draw(image).text((20, 100), text, fill="black")
+            frame = av.VideoFrame.from_image(image)
+            for _ in range(6):
+                for packet in stream.encode(frame):
+                    container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+    return buffer.getvalue()
+
+
+@pytest.mark.skipif(
+    not media_available(),
+    reason="the media extra is not installed (pip install -e '.[media]')",
+)
+async def test_a_client_trains_a_submodel_from_a_video(
+    client: AsyncClient,
+    owner_token: str,
+    test_prefix: str,
+    fake_ai: SubmodelAIProvider,
+    storage: LocalStorage,
+    signing_key: str,
+) -> None:
+    """The whole promise, with a real recording.
+
+    A recording is uploaded, read into the screens it shows and what changed
+    between them, and trained on. What the model then receives is a timeline
+    of screens and changes — not a summary of a video.
+    """
+    tenant = await _tenant(client, owner_token, test_prefix, "submodel-video")
+    org_id = tenant.organization["id"]
+    submodel = await _create_submodel(client, tenant.token, org_id)
+
+    # 1. Upload the recording.
+    recording = _recording()
+    uploaded = await client.post(
+        f"/api/v1/organizations/{org_id}/submodels/{submodel['id']}"
+        "/materials/upload",
+        headers=_bearer(tenant.token),
+        files={"file": ("walk-in-receipt.mp4", recording, "video/mp4")},
+        data={"title": "Walk-in receipt"},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    material = uploaded.json()
+    assert material["kind"] == "video"
+    assert material["status"] == "stored"
+
+    # 2. Read it: the material becomes a timeline of screens and changes.
+    read = await client.post(
+        f"/api/v1/organizations/{org_id}/submodels/{submodel['id']}"
+        f"/materials/{material['id']}/read",
+        headers=_bearer(tenant.token),
+    )
+    assert read.status_code == 200, read.text
+    read_material = read.json()
+    assert read_material["status"] == "ready"
+    assert read_material["extracted_units"] >= 2
+    timeline = read_material["extracted_text"]
+    assert "SCREEN 1" in timeline
+    assert "WHAT CHANGED BETWEEN THE SCREENS" in timeline
+
+    # 3. Train on it.
+    trained = await client.post(
+        f"/api/v1/organizations/{org_id}/submodels/{submodel['id']}/train",
+        headers=_bearer(tenant.token),
+    )
+    assert trained.status_code == 200, trained.text
+    assert len(trained.json()["workflows"]) == 1
+
+    # 4. Approve and export: the package carries the workflow.
+    await _approve(client, tenant.token, org_id, submodel["id"])
+    download = await client.get(
+        f"/api/v1/organizations/{org_id}/submodels/{submodel['id']}/download",
+        headers=_bearer(tenant.token),
+    )
+    assert download.status_code == 200, download.text
+    document = json.loads(download.text)
+    assert document["package"]["workflows"][0]["title"] == "Issue a walk-in receipt"
+    assert document["signature"]

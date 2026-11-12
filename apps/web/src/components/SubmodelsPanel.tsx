@@ -12,6 +12,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   Download,
+  Eye,
+  EyeOff,
   FileText,
   Loader2,
   MessageSquare,
@@ -804,48 +806,71 @@ function MaterialRow({
       : material.kind === "audio"
         ? Mic
         : FileText;
+  const [showText, setShowText] = useState(false);
+  const readable = material.extracted_text?.trim();
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-mist-200 px-4 py-3">
-      <div className="flex min-w-0 items-center gap-3">
-        <Icon className="h-4 w-4 shrink-0 text-teal-600" aria-hidden="true" />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-ink-900">
-            {material.title}
-          </p>
-          <p className="truncate text-xs text-ink-500">
-            {material.kind}
-            {material.status === "failed" && material.error_message
-              ? ` · ${material.error_message}`
-              : ""}
-            {material.extracted_units
-              ? ` · ${material.extracted_units} screens read`
-              : ""}
-          </p>
+    <div className="rounded-xl border border-mist-200 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Icon className="h-4 w-4 shrink-0 text-teal-600" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-ink-900">
+              {material.title}
+            </p>
+            <p className="truncate text-xs text-ink-500">
+              {material.kind}
+              {material.status === "failed" && material.error_message
+                ? ` · ${material.error_message}`
+                : ""}
+              {material.extracted_units
+                ? ` · ${material.extracted_units} screens read`
+                : ""}
+            </p>
+          </div>
         </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <Pill value={material.status} />
-        {material.kind === "video" || material.kind === "audio" ? (
+        <div className="flex items-center gap-2">
+          <Pill value={material.status} />
+          {readable ? (
+            <button
+              type="button"
+              onClick={() => setShowText((value) => !value)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-mist-300 px-3 py-1 text-xs font-semibold text-ink-700 hover:border-teal-500 hover:text-teal-700"
+            >
+              {showText ? (
+                <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : (
+                <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {showText ? "Hide" : "What was read"}
+            </button>
+          ) : null}
+          {material.kind === "video" || material.kind === "audio" ? (
+            <button
+              type="button"
+              onClick={onRead}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-full border border-mist-300 px-3 py-1 text-xs font-semibold text-ink-700 hover:border-teal-500 hover:text-teal-700 disabled:opacity-60"
+            >
+              <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
+              Read
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={onRead}
+            onClick={onArchive}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-full border border-mist-300 px-3 py-1 text-xs font-semibold text-ink-700 hover:border-teal-500 hover:text-teal-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-full border border-mist-300 px-3 py-1 text-xs font-semibold text-ink-700 hover:border-danger-500 hover:text-danger-500 disabled:opacity-60"
           >
-            <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
-            Read
+            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+            Remove
           </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={onArchive}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-full border border-mist-300 px-3 py-1 text-xs font-semibold text-ink-700 hover:border-danger-500 hover:text-danger-500 disabled:opacity-60"
-        >
-          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-          Remove
-        </button>
+        </div>
       </div>
+      {showText && readable ? (
+        <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-lg bg-mist-50 p-3 text-xs text-ink-700">
+          {readable}
+        </pre>
+      ) : null}
     </div>
   );
 }

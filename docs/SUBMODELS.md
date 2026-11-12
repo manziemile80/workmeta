@@ -104,9 +104,13 @@ the actions and turn them into ordered steps.
 
 Video and audio are **optional capabilities**, detected at runtime:
 
-- without `ffmpeg` (or without OCR) a recording cannot be read — the material
-  is stored, the API answers `503 media_capability_unavailable` and says
-  exactly what to upload instead;
+- a recording is decoded with the system `ffmpeg` when it is installed, and
+  otherwise with **PyAV**, which carries the codec libraries in its wheel —
+  so a deployment can read a recording with nothing installed on the machine
+  (`pip install -e ".[media]"`);
+- the text on the frames is read with the OCR engine: the **Tesseract** CLI,
+  or the **ONNX** engine that ships its own models (also part of the `media`
+  extra), selected with `OCR_ENGINE`;
 - without a transcription model an audio instruction cannot be transcribed —
   same behaviour.
 
@@ -373,8 +377,13 @@ performed.
 | `extension_analysis_max_output_tokens` | 6000 | Bound on the training answer |
 | `media_video_frame_interval_seconds` | 5 | How often a recording is sampled |
 | `media_video_max_frames` | 60 | Maximum frames read from a recording |
+| `OCR_ENGINE` | `none` | `rapidocr`, `tesseract` or `auto`; `none` disables image reading |
 | `ai_transcription_model` | empty | Speech-to-text model; empty means audio cannot be transcribed |
 | `EXTENSION_SIGNING_PRIVATE_KEY` | empty | Ed25519 key; empty means packages cannot be exported |
+
+The `media` extra (`pip install -e ".[media]"`) installs PyAV, Pillow and the
+ONNX OCR engine, which together make a deployment able to read a recording
+with nothing installed on the machine.
 
 ## 13. What is **not** claimed yet
 
@@ -386,9 +395,10 @@ performed.
 - A submodel **guides** and **authorises**; it does not drive a browser on its
   own. The installed agent (Stage 11) performs the actions, and it asks the
   server before each one.
-- Video reading needs `ffmpeg` and OCR; audio transcription needs a
-  transcription model. Both are optional capabilities with honest failure
-  messages, not silent gaps.
+- Video reading needs a decoder and OCR. Both are available as a pip extra
+  (`pip install -e ".[media]"`) that needs nothing on the machine, or as the
+  system `ffmpeg` and Tesseract. When neither is there, the API says so
+  rather than pretending the material was read.
 - Training and guidance need a real model. A deployment without `AI_API_KEY`
   runs the deterministic offline provider, which extracts nothing: the
   submodel stays untrained and the console says so. That is the intended

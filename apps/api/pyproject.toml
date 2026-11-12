@@ -38,6 +38,14 @@ dev = [
   "pytest-asyncio>=0.25,<2.0",
   "ruff>=0.8,<1.0",
 ]
+# Reading a screen recording and the text on its frames, with nothing to
+# install on the machine: PyAV carries the codec libraries and the ONNX OCR
+# engine carries its models.
+media = [
+  "av>=14,<20",
+  "pillow>=11,<14",
+  "rapidocr-onnxruntime>=1.4,<2",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

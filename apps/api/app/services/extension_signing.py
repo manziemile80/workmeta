@@ -46,11 +46,25 @@ def canonical_json(manifest: dict[str, Any]) -> bytes:
 
 
 def _private_key() -> Ed25519PrivateKey | None:
-    pem = (get_settings().extension_signing_private_key or "").strip()
-    if not pem:
+    """The deployment's signing key, when one is configured.
+
+    Two forms are accepted:
+
+    * a PEM block — convenient when the variable comes from a secret store
+      or a shell export;
+    * ``base64:<seed>`` (or a bare base64 seed) — a single line, which is
+      what an ``.env`` file can hold.
+    """
+    raw = (get_settings().extension_signing_private_key or "").strip()
+    if not raw:
         return None
     try:
-        key = serialization.load_pem_private_key(pem.encode("utf-8"), password=None)
+        if raw.startswith("base64:"):
+            seed = base64.b64decode(raw[len("base64:") :].strip(), validate=True)
+            if len(seed) != 32:
+                return None
+            return Ed25519PrivateKey.from_private_bytes(seed)
+        key = serialization.load_pem_private_key(raw.encode("utf-8"), password=None)
     except Exception:  # noqa: BLE001 - a bad key must not break the service
         return None
     if isinstance(key, Ed25519PrivateKey):

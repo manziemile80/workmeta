@@ -80,14 +80,23 @@ From the repository root:
 # 1. Create .env with strong random secrets (gitignored)
 py -3.12 tools/scripts/generate_env.py
 
+# 1b. Make sure it has a signing key, so the agent packages and the
+#     submodel packages can be signed
+py -3.12 tools/scripts/generate_signing_key.py --force
+
 # 2. Start PostgreSQL 16 + pgvector
 docker compose -f infra/docker-compose.yml up -d
 docker compose -f infra/docker-compose.yml ps
 
+```powershell
 # 3. Install the backend (first time only)
 cd apps/api
 py -3.12 -m venv .venv
 .\.venv\Scripts\python -m pip install -e ".[dev]"
+
+# 3b. Optional: read training recordings without installing anything on the
+#     machine (PyAV carries the codec libraries, the ONNX engine its models)
+.\.venv\Scripts\python -m pip install -e ".[media]"
 
 # 4. Apply database migrations (from apps/api)
 .\.venv\Scripts\python -m alembic upgrade head
@@ -312,6 +321,7 @@ Copy `.env.example` to `.env` or generate it. Never commit `.env`.
 | `APP_ENV` | `development`, `test`, `production` |
 | `DATABASE_URL` | Runtime connection — restricted `wm_app` role |
 | `DATABASE_MIGRATION_URL` | Alembic connection — owner role |
+| `DATABASE_CONNECT_TIMEOUT_SECONDS`, `DATABASE_COMMAND_TIMEOUT_SECONDS` | How long a connection or a statement may take |
 | `SESSION_SECRET` | Keyed HMAC for session/invitation token hashes |
 | `SESSION_TTL_DAYS`, `INVITATION_TTL_DAYS` | Session and invitation lifetimes |
 | `AI_API_KEY` | **Server-side only.** Never shipped to browsers. Empty ⇒ offline fake provider |
@@ -324,7 +334,9 @@ Copy `.env.example` to `.env` or generate it. Never commit `.env`.
 | `RETRIEVAL_TOP_K`, `RETRIEVAL_MIN_SCORE` | Hybrid retrieval breadth and relevance floor |
 | `INGESTION_MAX_ATTEMPTS`, `WORKER_POLL_SECONDS` | Worker retries and idle polling |
 | `STORAGE_BACKEND`, `STORAGE_DIR` | Local files now, S3-compatible later |
-| `EXTENSION_SIGNING_PRIVATE_KEY` | White-label package signing (Stage 5) |
+| `OCR_ENGINE` | `none`, `rapidocr`, `tesseract` or `auto` — OCR for images, scanned PDFs and the frames of a recording |
+| `MEDIA_VIDEO_FRAME_INTERVAL_SECONDS`, `MEDIA_VIDEO_MAX_FRAMES` | How a training recording is sampled |
+| `EXTENSION_SIGNING_PRIVATE_KEY` | Ed25519 key for the agent packages and the submodel packages (Stage 5/12) |
 | `SEED_OWNER_EMAIL`, `SEED_OWNER_PASSWORD` | First platform owner (Stage 1) |
 | `BILLING_PROVIDER`, `FLUTTERWAVE_*`, `PAYSTACK_*` | Payment gateway (Stage 5, sandbox first) |
 | `ALLOWED_HOSTS`, `MAX_REQUEST_BODY_BYTES`, `RATE_LIMIT_*` | Host/body/rate hardening (Stage 6) |

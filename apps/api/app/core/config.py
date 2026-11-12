@@ -93,6 +93,12 @@ class Settings(BaseSettings):
     database_migration_url: str = (
         "postgresql+asyncpg://workmeta_owner:change-me@127.0.0.1:5432/workmeta"
     )
+    # A remote database over a slow link needs more than a couple of seconds
+    # to establish a session. The readiness probe keeps its own, short timeout,
+    # so it stays quick whatever these are set to.
+    database_connect_timeout_seconds: int = 15
+    database_command_timeout_seconds: int = 30
+    database_probe_timeout_seconds: int = 5
 
     # Sessions (used from Stage 1 onward)
     session_secret: str = ""
@@ -142,7 +148,9 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = 2.0
 
     # OCR (optional). "none" keeps image/scanned-PDF uploads disabled.
-    ocr_engine: Literal["none", "tesseract"] = "none"
+    # "rapidocr" needs nothing installed on the machine, "tesseract" needs the
+    # Tesseract binary, and "auto" takes whichever is installed.
+    ocr_engine: Literal["none", "tesseract", "rapidocr", "auto"] = "none"
     ocr_language: str = "eng"
     ocr_timeout_seconds: int = 30
     ocr_max_image_pixels: int = 40_000_000

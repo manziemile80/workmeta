@@ -56,10 +56,16 @@ Rules:
    guessing.
 3. A workflow is one complete task ("issue a walk-in receipt", "register a
    student"), written for a person who has never used the system.
-4. Read the timeline in order. A change between two screens is an action the
-   person performed. Write one step per action, in the order they happened.
+4. A recording arrives as a TIMELINE. It has "SCREEN n at <time>" blocks,
+   each with the text that was on that screen, and "CHANGE n at <time>"
+   blocks, each with what the screen looked like before and after. A CHANGE
+   is one action the person performed, in the order the changes happened.
+   Write one step per change, in that order. A screen that never changed
+   shows the state the person was in, not an action.
 5. Every step must say what to do, where to do it, what to enter when there
-   is something to enter, and what should happen next.
+   is something to enter, and what should happen next. Use the words that
+   are on the screen: if the screen says "New receipt", the step says
+   "New receipt", not "invoice form".
 6. Mark a step as sensitive when it submits an application, moves money,
    deletes a record or sends something to another person. Those steps need
    the user's confirmation before they run.

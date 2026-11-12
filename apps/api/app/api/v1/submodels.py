@@ -625,16 +625,28 @@ async def train(
         raise
     # The workflows are read before the commit: the tenant context is
     # transaction-local, so a read after it would see no rows.
+    if workflows:
+        message = (
+            f"The AI read {materials} piece(s) of material and wrote "
+            f"{len(workflows)} workflow(s). Approve the ones that are right."
+        )
+    else:
+        # Nothing was found. That is the honest failure mode of a deployment
+        # without a real model, and it is said plainly rather than reported
+        # like a normal result.
+        message = (
+            "No workflows were found in the training material. Add a "
+            "recording of the task, the manual or the written steps and "
+            "train again — a submodel is never used with an empty workflow "
+            "set."
+        )
     result = SubmodelTrainingResult(
         submodel_id=submodel.id,
         training_status=submodel.training_status,
         workflows=[SubmodelWorkflowRead.model_validate(item) for item in workflows],
         analysed_materials=materials,
         analysed_characters=characters,
-        message=(
-            f"The AI read {materials} piece(s) of material and wrote "
-            f"{len(workflows)} workflow(s). Approve the ones that are right."
-        ),
+        message=message,
     )
     await session.commit()
     return result

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.errors import AppError
-from app.db.session import get_session, has_pgvector, ping_database
+from app.db.session import get_session, probe_database
 from app.models.enums import IngestionJobStatus
 from app.schemas.health import HealthResponse, ReadyResponse
 
@@ -47,7 +47,7 @@ async def health() -> HealthResponse:
 
 @router.get("/ready", response_model=ReadyResponse, summary="Readiness probe")
 async def ready(
-    session: AsyncSession = Depends(get_session),  # noqa: B008 - FastAPI idiom
+    probe: tuple[bool, bool] = Depends(probe_database),  # noqa: B008 - FastAPI idiom
 ) -> ReadyResponse:
     """Verify that the API can serve traffic: database reachable, pgvector status."""
     settings = get_settings()
@@ -60,16 +60,17 @@ async def ready(
             status_code=503,
             code="database_not_configured",
         )
-    try:
-        await ping_database(session)
-        vector_ready = await has_pgvector(session)
-    except Exception as exc:  # noqa: BLE001 - converted into a safe 503 envelope
-        logger.exception("readiness_database_error", error_type=type(exc).__name__)
+
+    # The probe uses a connection of its own with a short timeout, so the
+    # readiness answer is quick however slow the link to the database is.
+    reachable, vector_ready = probe
+    if not reachable:
+        logger.error("readiness_database_unreachable")
         raise AppError(
             "The database is not reachable.",
             status_code=503,
             code="database_unavailable",
-        ) from exc
+        )
 
     if not vector_ready:
         # Informational in Stage 0; Stage 2 (RAG) will require this to be true.
