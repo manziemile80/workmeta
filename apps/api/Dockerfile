@@ -26,6 +26,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:${PATH}" \
     APP_ENV=production
 
+# The OCR engine the "media" extra installs runs through OpenCV, which links
+# against the X11/GL shared libraries even when it never opens a window. The
+# slim base image ships none of them, so reading a frame would fail with
+# "libxcb.so.1: cannot open shared object file".
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0 libxcb1 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system app && useradd --system --gid app --no-create-home app
 
 COPY --from=build /opt/venv /opt/venv

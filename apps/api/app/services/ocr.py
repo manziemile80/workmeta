@@ -56,10 +56,28 @@ def tesseract_available() -> bool:
 
 
 def rapidocr_available() -> bool:
-    """Whether the ONNX OCR engine and its imaging library are installed."""
+    """Whether the ONNX OCR engine can really run on this machine.
+
+    The wheel being present is not enough: its OpenCV dependency links
+    against the X11/GL shared libraries, and on a slim Linux image those
+    are missing, so the import only fails at the first read. Importing the
+    engine once here says the truth, and the module stays cached so the
+    next check costs nothing.
+    """
     if importlib.util.find_spec("PIL") is None:
         return False
-    return importlib.util.find_spec("rapidocr_onnxruntime") is not None
+    if importlib.util.find_spec("rapidocr_onnxruntime") is None:
+        return False
+    try:
+        importlib.import_module("rapidocr_onnxruntime")
+    except Exception as exc:  # noqa: BLE001 - a missing native library says no
+        logger.warning(
+            "ocr_engine_unavailable",
+            requested="rapidocr",
+            reason=f"the engine cannot be imported: {exc}",
+        )
+        return False
+    return True
 
 
 class TesseractOCREngine:
