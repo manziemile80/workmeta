@@ -18,6 +18,7 @@ from app.api.v1 import (
     organizations,
     platform,
     products,
+    submodels,
     usage,
 )
 from app.api.v1 import audit as audit_routes
@@ -39,3 +40,4 @@ api_router.include_router(usage.assistant_router)
 api_router.include_router(billing.router)
 api_router.include_router(billing.org_router)
 api_router.include_router(platform.router)
+api_router.include_router(submodels.router)
