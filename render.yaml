@@ -14,7 +14,7 @@
 # auto-migrates.
 #
 # Free limits (honest): single instance, sleeps after inactivity (cold starts),
-# ephemeral disk (STORAGE_DIR resets on restart), no background workers.
+# ephemeral disk (STORAGE_DIR resets on restart), no background-worker service.
 # Uploads/ingestion are processed by the in-process worker loop
 # (EMBEDDED_WORKER_ENABLED=true), billing stays correct because lifecycle
 # advances lazily. See docs/RENDER_DEPLOYMENT.md.

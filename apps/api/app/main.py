@@ -37,6 +37,15 @@ logger = structlog.get_logger(__name__)
 _WORKER_SHUTDOWN_GRACE_SECONDS = 5.0
 
 
+def _log_worker_exit(task: asyncio.Task[None]) -> None:
+    """Report a worker loop that ended on its own (a crash, not a shutdown)."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("embedded_worker_failed", error=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     configure_logging(settings)
@@ -56,6 +65,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         # Single-instance deployments (Render Free) have no worker service,
         # so the API drains its own queue. See app/workers/embedded.py.
         worker_task = asyncio.create_task(run_embedded_worker(stop_worker))
+        worker_task.add_done_callback(_log_worker_exit)
 
     try:
         yield
@@ -69,6 +79,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 worker_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await worker_task
+            elif not worker_task.cancelled():
+                # The loop stopped on its own; the callback logged the reason.
+                worker_task.exception()
         await dispose_engine()
         logger.info("api_stopped")
 

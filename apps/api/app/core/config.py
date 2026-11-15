@@ -287,7 +287,9 @@ class Settings(BaseSettings):
     @classmethod
     def _non_negative_heartbeat(cls, value: float) -> float:
         if value < 0:
-            raise ValueError("stream_heartbeat_seconds must be non-negative")
+            raise ValueError(
+                "stream_heartbeat_seconds and worker_poll_seconds must be non-negative"
+            )
         return value
 
     @field_validator("embedded_worker_billing_seconds")

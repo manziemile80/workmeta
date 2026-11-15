@@ -13,6 +13,9 @@ Development-only. Never use these limits for production.
   chunked and embedded a few seconds after they are queued. While the service
   sleeps, queued rows stay `queued` and are picked up after the cold start.
   The queue is durable, so nothing is lost.
+- **A separate worker service could not help anyway**: the disk is ephemeral
+  per service, so a worker in its own container would not find the uploaded
+  blob. The API that received the upload has to do the ingestion.
 - **Billing lifecycle** still advances lazily on every billing/quota read
   (`ensure_subscription`), and the embedded sweep advances it in the
   background as well, so trials/past-due/expiry stay correct.
