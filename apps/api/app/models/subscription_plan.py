@@ -74,8 +74,6 @@ class SubscriptionPlan(Base):
     max_assistants: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_documents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_storage_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    # WorkMeta AI Submodels are metered like assistants and documents.
-    max_submodels: Mapped[int | None] = mapped_column(Integer, nullable=True)
     monthly_token_allowance: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True
     )

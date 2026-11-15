@@ -4,8 +4,7 @@
 > API address and its own trained domains. The agent asks the API what it may
 > do; it never decides for itself.
 
-This document describes the agent that runs **in the browser**. The platform
-side it talks to is described in [Submodels](SUBMODELS.md).
+This document describes the agent that runs **in the browser**.
 
 ---
 
@@ -17,7 +16,7 @@ A Chrome/Edge extension (Manifest V3) with three parts:
 |---|---|
 | `src/background/` | The service worker. It holds the session token and is the **only** part that talks to the API. |
 | `src/content/` | A content script that runs only on the client's trained domains. It reports which page is open and returns visible text **only when the user asks**. |
-| `src/sidepanel/` | The assistant panel: sign in, pick a trained model, ask a question, confirm an action. |
+| `src/sidepanel/` | The assistant panel: sign in, see which page is open, sign out. |
 
 There is one codebase. Packaging rewrites the manifest and the configuration
 for a client; the code is identical.
@@ -47,20 +46,9 @@ agent cannot see where the user has been.
 
 ### The page is untrusted data
 
-The visible text of a page is delimited and marked as data in the guidance
-prompt. Text on a screen can say "ignore your instructions"; the agent
-treats it as something to read, never as something to obey. The same rule
-applies to the uploaded training material.
-
-### The server decides what may be done
-
-The agent asks the API before it acts. The client's own policy decides
-whether an action is allowed, whether it needs the user's confirmation and
-whether it is refused. A sensitive step **always** forces a confirmation, and
-the plan records who confirmed what and when.
-
-The agent cannot skip this: the API refuses to complete a sensitive action
-that was not confirmed, so a client that does not confirm cannot happen.
+The visible text of a page is treated as data, never as instructions. Text on
+a screen can say "ignore your instructions"; the agent reads it as something
+to display, never as something to obey.
 
 ### The package is checked before it is used
 
@@ -69,13 +57,6 @@ key. The agent checks that signature in the browser with WebCrypto before it
 uses the configuration, and shows the key's fingerprint so an administrator
 can compare it with the one the WorkMeta console shows.
 
-The published package is checked the same way, and against the key from the
-agent's own **signed** configuration rather than the key the package
-carries — so a package cannot introduce its own signer. The API returns the
-exact bytes it signed, and the agent verifies them rather than re-serialising
-the manifest (the canonical form of a number is not portable between
-languages).
-
 ---
 
 ## 3. How it is used
@@ -83,13 +64,8 @@ languages).
 1. The client administrator packages the agent for their organisation.
 2. Staff install the ZIP (Chrome → *Load unpacked*, or the enterprise
    policy) and sign in with their work account.
-3. When they pick a **submodel** — a model trained from a video demo of a
-   task — the agent asks it directly, whether it was trained here or
-   installed from a package.
-5. When they ask a question, the agent answers from the approved procedures,
-   with the steps and where to click.
-6. When an action is proposed, the client's policy decides. If it is
-   sensitive, the panel asks the user to confirm it first.
+3. The panel shows who is signed in and which of the client's pages the
+   agent is currently allowed to read.
 
 ---
 
@@ -146,43 +122,18 @@ a valid user login for that client.
 |---|---|
 | `POST /auth/login` with `kind: "extension"` | Sign in. Returns a bearer token instead of a cookie. |
 | `GET /auth/me` | Check the stored session is still valid. |
-| `GET /organizations/{org}/submodels` | The trained models this organization can use. |
-| `POST /organizations/{org}/submodels/{id}/guidance` | Grounded steps for the question, cited to the approved workflows. |
-| `POST /organizations/{org}/submodels/{id}/actions` | Ask whether an action may be performed. |
-| `POST …/submodels/{id}/actions/{plan}/confirm` | Record the user's confirmation or refusal. |
-| `POST …/submodels/{id}/actions/{plan}/complete` | Report that the action ran. |
-| `GET /organizations/{org}/submodels` | The trained models this organization can use. |
-| `POST /organizations/{org}/submodels/{id}/guidance` | Grounded steps from a submodel's own approved workflows. |
-| `POST /organizations/{org}/submodels/{id}/actions` | Ask whether an action may be performed, under the submodel's policy. |
-| `POST …/submodels/{id}/actions/{plan}/confirm` | Record the user's confirmation or refusal. |
-| `POST …/submodels/{id}/actions/{plan}/complete` | Report that the action ran. |
+| `POST /auth/switch-organization` | Change the organisation the agent acts for. |
+| `POST /auth/logout` | Revoke the session on the server. |
 
 Every call is authorised by the server against the user's membership in the
 organization, so the agent cannot reach another client's data.
-
-### Submodels in the panel
-
-The side panel lists the submodels of the organization and lets the user pick
-one. A picked submodel is asked **directly** — no page matching is needed,
-because a submodel carries its own workflows. It behaves identically whether
-the model was trained here or installed from a package on another machine.
-
-An action a submodel proposes goes through the same decision: the server
-answers under the submodel's own policy, a sensitive action waits for the
-user's confirmation, and a refused action is never reported as performed.
 
 ---
 
 ## 7. What is not claimed yet
 
 - **No system is supported out of the box.** EBM, Irembo, RTB CAMIS, school
-  and hospital systems are all *trainable*, not *trained*. An agent only
-  claims the workflows that were trained, approved and tested.
-- **The agent does not act on its own.** It proposes, the server decides and
-  the user confirms. It never clicks through a financial operation by
-  itself.
+  and hospital systems are all *trainable*, not *trained*.
+- **The agent does not act on its own.** It never clicks through a financial
+  operation by itself.
 - **The desktop companion does not exist.** This is the browser agent only.
-- **Video and audio training material needs optional capabilities.** A
-  screen recording needs `ffmpeg` and OCR, and an audio instruction needs a
-  transcription model. Both are detected at run time on the server and fail
-  with a clear message rather than pretending the material was analysed.

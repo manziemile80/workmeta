@@ -45,11 +45,11 @@ function stubFetch(
 test("the session token is sent as a bearer token", async () => {
   const { calls, client } = stubFetch(() => ({
     status: 200,
-    payload: { id: "sub-1" },
+    payload: { user: { id: "u1" } },
   }));
   client.setToken("secret-token");
 
-  await client.submodelGuidance("org-1", "sub-1", "How do I issue a receipt?");
+  await client.me();
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].headers.Authorization, "Bearer secret-token");
@@ -90,7 +90,7 @@ test("the error envelope becomes a readable error", async () => {
   }));
 
   await assert.rejects(
-    () => client.submodels("org-1"),
+    () => client.me(),
     (error: unknown) => {
       const failure = error as ApiError;
       assert.ok(failure instanceof ApiError);
@@ -103,21 +103,21 @@ test("the error envelope becomes a readable error", async () => {
   );
 });
 
-test("a guidance request sends the question and the page context", async () => {
+test("switching organization posts the chosen organization", async () => {
   const { calls, client } = stubFetch(() => ({
     status: 200,
-    payload: { answer: "Open the sales screen." },
+    payload: { user: { id: "u1" }, active_organization: null, memberships: [] },
   }));
+  client.setToken("secret-token");
 
-  await client.submodelGuidance("org-1", "sub-1", "How do I issue a receipt?", {
-    url: "https://ebm.example.com/",
-    text: "Sales screen",
-  });
+  await client.switchOrganization("org-1");
 
-  const body = JSON.parse(calls[0].body ?? "{}");
-  assert.equal(body.question, "How do I issue a receipt?");
-  assert.equal(body.context.url, "https://ebm.example.com/");
-  assert.equal(body.context.text, "Sales screen");
+  assert.equal(
+    calls[0].url,
+    "https://api.example.com/api/v1/auth/switch-organization",
+  );
+  assert.equal(calls[0].method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].body ?? "{}"), { org_id: "org-1" });
 });
 
 test("signing out revokes the session on the server", async () => {
@@ -155,7 +155,7 @@ test("a network failure is reported as such", async () => {
   const client = new WorkMetaClient("https://api.example.com/api/v1");
   try {
     await assert.rejects(
-      () => client.submodels("org-1"),
+      () => client.me(),
       (error: unknown) => {
         const failure = error as ApiError;
         assert.ok(failure instanceof ApiError);
@@ -166,72 +166,4 @@ test("a network failure is reported as such", async () => {
   } finally {
     globalThis.fetch = original;
   }
-});
-
-test("the submodels of an organization are listed", async () => {
-  const { calls, client } = stubFetch(() => ({
-    status: 200,
-    payload: [{ id: "sub-1", name: "EBM receipts", origin: "imported" }],
-  }));
-
-  const submodels = await client.submodels("org-1");
-
-  assert.equal(
-    calls[0].url,
-    "https://api.example.com/api/v1/organizations/org-1/submodels",
-  );
-  assert.equal(calls[0].method, "GET");
-  assert.equal(submodels[0].origin, "imported");
-});
-
-test("a submodel is asked directly, without matching the page", async () => {
-  const { calls, client } = stubFetch(() => ({
-    status: 200,
-    payload: { answer: "Open the sales screen." },
-  }));
-
-  await client.submodelGuidance("org-1", "sub-1", "How do I issue a receipt?");
-
-  assert.equal(
-    calls[0].url,
-    "https://api.example.com/api/v1/organizations/org-1/submodels/sub-1/guidance",
-  );
-  const body = JSON.parse(calls[0].body ?? "{}");
-  assert.equal(body.question, "How do I issue a receipt?");
-});
-
-test("a submodel action is proposed, confirmed and completed", async () => {
-  const { calls, client } = stubFetch(() => ({
-    status: 200,
-    payload: { id: "plan-1", status: "proposed" },
-  }));
-
-  await client.submodelProposeAction(
-    "org-1",
-    "sub-1",
-    "payment",
-    "Collect the invoice payment",
-  );
-  await client.submodelConfirmAction("org-1", "sub-1", "plan-1", true);
-  await client.submodelCompleteAction("org-1", "sub-1", "plan-1", true, {
-    receipt: "R-1",
-  });
-
-  assert.equal(
-    calls[0].url,
-    "https://api.example.com/api/v1/organizations/org-1/submodels/sub-1/actions",
-  );
-  assert.equal(
-    calls[1].url,
-    "https://api.example.com/api/v1/organizations/org-1/submodels/sub-1/actions/plan-1/confirm",
-  );
-  assert.deepEqual(JSON.parse(calls[1].body ?? "{}"), { confirmed: true });
-  assert.equal(
-    calls[2].url,
-    "https://api.example.com/api/v1/organizations/org-1/submodels/sub-1/actions/plan-1/complete",
-  );
-  assert.deepEqual(JSON.parse(calls[2].body ?? "{}"), {
-    succeeded: true,
-    result: { receipt: "R-1" },
-  });
 });

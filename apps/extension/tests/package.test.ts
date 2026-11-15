@@ -33,6 +33,8 @@ const python = (() => {
   const candidates = [
     path.join(repoRoot, "apps", "api", ".venv", "Scripts", "python.exe"),
     path.join(repoRoot, "apps", "api", ".venv", "bin", "python"),
+    path.join(repoRoot, ".venv", "Scripts", "python.exe"),
+    path.join(repoRoot, ".venv", "bin", "python"),
     "python",
   ];
   for (const candidate of candidates) {

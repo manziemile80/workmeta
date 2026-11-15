@@ -43,17 +43,6 @@
 - **No card data is stored.** Only provider references, amounts, currency and non-sensitive metadata.
 - Mock provider is refused in production.
 
-## Trained models (WorkMeta AI Submodels)
-
-- **Per client, never global.** `submodels`, `submodel_materials`, `submodel_procedures`, `submodel_tests` and `submodel_action_plans` all carry `org_id` with forced RLS and the tenant policy; the runtime role cannot read another client's training material. `products` stays global metadata — the *training* is always per client.
-- **No claim before proof.** A submodel's workflows are drafts until a human approves them, and an approval is withdrawn when training changes the steps it approved. The gate lives in the service layer, so it cannot be bypassed by calling the API.
-- **Grounded answers.** The training prompt and the guidance prompt treat the recording and the workflows as untrusted data, never as instructions, and refuse to invent steps that are not in the material.
-- **Signed packages.** The published package is signed with Ed25519 over its canonical JSON (`EXTENSION_SIGNING_PRIVATE_KEY`), and the **workflows themselves** are inside the signature. The public key travels with the package, so a package trained on another machine is verified against the key it carries — and a tampered workflow is refused.
-- **Authorised actions.** The agent asks the server before acting. `auto_actions` run on their own, `confirm_actions` (submitting an application, moving money, deleting a record, sending) require the user's confirmation, `denied_actions` are refused, and a step marked sensitive always forces a confirmation. A refused action is stored as refused and can never be reported as performed.
-- **Least privilege.** The runtime role gets `SELECT/INSERT/UPDATE` on the tables and no `DELETE`: materials are archived, workflows are rejected, tests and action plans stay as history.
-
-See `docs/SUBMODELS.md` for the full model, lifecycle and runtime contract.
-
 ## Secrets and logging
 
 - Secrets come only from environment (`.env`, never committed). `SESSION_SECRET`, DB passwords, `AI_API_KEY`, `FLUTTERWAVE_*` / `PAYSTACK_*` are server-side only and absent from API responses and logs.
@@ -70,4 +59,4 @@ See `docs/SUBMODELS.md` for the full model, lifecycle and runtime contract.
 - No MFA yet (planned). No idle session timeout (absolute TTL only). CSRF not rotated on org switch (full session TTL).
 - Flutterwave webhook hash is static (not body-bound); mitigated by live re-verification but hash rotation is manual.
 - `GET /billing/plans` is unauthenticated by design (public pricing); `/` and `/health` fingerprint version/environment for load balancers.
-- `sentry_dsn` is configured but unused. The signing key signs the branded agent package and the submodel packages; without it packages are published unsigned.
+- `sentry_dsn` is configured but unused. The signing key signs the branded agent package; without it packages are published unsigned.

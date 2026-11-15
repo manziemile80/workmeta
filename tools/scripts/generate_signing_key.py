@@ -5,8 +5,7 @@ Usage (from the repository root):
     py -3.12 tools/scripts/generate_signing_key.py
     py -3.12 tools/scripts/generate_signing_key.py --force   # replace an existing key
 
-The key signs the white-label agent packages and the WorkMeta AI Submodel
-packages. It is written to `EXTENSION_SIGNING_PRIVATE_KEY` in the gitignored
+The key signs the white-label agent packages. It is written to `EXTENSION_SIGNING_PRIVATE_KEY` in the gitignored
 `.env`; the secret is never printed. The fingerprint is printed, because that
 is what an administrator compares against the one the console shows.
 

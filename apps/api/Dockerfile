@@ -14,10 +14,9 @@ ENV PATH="/opt/venv/bin:${PATH}"
 WORKDIR /src
 COPY apps/api/pyproject.toml apps/api/README.md ./
 COPY apps/api/app ./app
-# The "media" extra brings the video decoder (PyAV) and the OCR engine, so a
-# deployment can read a training demo without anything installed on the
-# machine. Drop it if the deployment never reads a recording.
-RUN pip install ".[media]"
+# The "ocr" extra brings the OCR engine, so a deployment can read a scanned
+# page without anything installed on the machine.
+RUN pip install ".[ocr]"
 
 FROM python:3.12-slim-bookworm AS runtime
 
@@ -30,9 +29,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     # to match. Two threads is plenty for one frame at a time.
     OMP_NUM_THREADS=2
 
-# The OCR engine the "media" extra installs runs through OpenCV, which links
+# The OCR engine the "ocr" extra installs runs through OpenCV, which links
 # against the X11/GL shared libraries even when it never opens a window. The
-# slim base image ships none of them, so reading a frame would fail with
+# slim base image ships none of them, so reading a page would fail with
 # "libxcb.so.1: cannot open shared object file".
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

@@ -17,7 +17,6 @@ import {
   UsersRound,
 } from "lucide-react";
 import { BrandMark } from "./components/BrandMark";
-import { SubmodelsPanel } from "./components/SubmodelsPanel";
 import {
   ApiRequestError,
   cancelSubscription,
@@ -55,7 +54,6 @@ import { cn } from "./lib/cn";
 
 type View =
   | "overview"
-  | "submodels"
   | "pricing"
   | "checkout"
   | "payments"
@@ -205,7 +203,6 @@ export function App() {
             {(
               [
                 ["overview", "Overview"],
-                ["submodels", "Submodels"],
                 ["pricing", "Pricing"],
                 ["checkout", "Checkout"],
                 ["payments", "Payments & usage"],
@@ -264,8 +261,6 @@ export function App() {
           <EmptyOrg />
         ) : view === "overview" ? (
           <Overview orgId={orgId} />
-        ) : view === "submodels" ? (
-          <SubmodelsPanel orgId={orgId} />
         ) : view === "pricing" ? (
           <Pricing
             orgId={orgId}

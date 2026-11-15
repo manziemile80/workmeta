@@ -22,8 +22,8 @@ ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / ".env.example"
 TARGET = ROOT / ".env"
 
-# One signing key is generated for the whole file, so the agent packages and
-# the submodel packages are signed with the same key.
+# One signing key is generated for the whole file, so every package it
+# signs belongs to this deployment.
 _SIGNING_KEY = Ed25519PrivateKey.generate()
 
 
@@ -100,8 +100,8 @@ def main() -> int:
             "SESSION_SECRET": secrets.token_urlsafe(48),
             "SEED_OWNER_EMAIL": values.get("SEED_OWNER_EMAIL") or "owner@workmeta.ai",
             "SEED_OWNER_PASSWORD": secrets.token_urlsafe(18),
-            # A signing key, so the white-label agent package and the
-            # WorkMeta AI Submodel packages can be signed in development.
+            # A signing key, so the white-label agent package can be
+            # signed in development.
             "EXTENSION_SIGNING_PRIVATE_KEY": signing_seed(),
             "EXTENSION_SIGNING_KEY_ID": signing_fingerprint(),
         }

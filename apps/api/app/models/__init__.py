@@ -20,13 +20,6 @@ from app.models.payment_transaction import PaymentTransaction
 from app.models.processed_webhook_event import ProcessedWebhookEvent
 from app.models.product import Product
 from app.models.session import UserSession
-from app.models.submodel import (
-    Submodel,
-    SubmodelActionPlan,
-    SubmodelMaterial,
-    SubmodelProcedure,
-    SubmodelTest,
-)
 from app.models.subscription_plan import SubscriptionPlan
 from app.models.usage_counter import UsageCounter
 from app.models.usage_event import UsageEvent
@@ -49,11 +42,6 @@ __all__ = [
     "ProcessedWebhookEvent",
     "Product",
     "SubscriptionPlan",
-    "Submodel",
-    "SubmodelActionPlan",
-    "SubmodelMaterial",
-    "SubmodelProcedure",
-    "SubmodelTest",
     "UsageCounter",
     "UsageEvent",
     "UserSession",

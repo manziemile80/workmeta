@@ -1,8 +1,8 @@
-"""The routes that are a literal word must not be shadowed by a path parameter.
+"""The application must not serve routes for removed subsystems.
 
-FastAPI matches routes in the order they are registered, so a route such as
-``/limits`` that is registered after ``/{submodel_id}`` is never reached: the
-parameter route answers first and the word is read as an identifier.
+FastAPI matches routes in the order they are registered, so a router that is
+left behind after its feature is deleted keeps answering. These tests pin the
+routes that are gone.
 """
 
 from __future__ import annotations
@@ -39,41 +39,13 @@ def _paths() -> list[str]:
     return [route.path for route in _routes()]
 
 
-def test_the_literal_routes_exist() -> None:
-    paths = _paths()
-    for literal in (
-        "/organizations/{org_id}/submodels/limits",
-        "/organizations/{org_id}/submodels/import",
-    ):
-        assert literal in paths, f"{literal} is missing"
-
-
-def test_the_limits_route_is_not_shadowed_by_the_submodel_id() -> None:
-    paths = _paths()
-    assert paths.index("/organizations/{org_id}/submodels/limits") < paths.index(
-        "/organizations/{org_id}/submodels/{submodel_id}"
-    )
-
-
-def test_the_import_route_is_not_shadowed() -> None:
-    """``POST /submodels/import`` must not be read as a submodel id.
-
-    The router has a ``GET /{submodel_id}`` route, which matches the path of
-    the import but not its method. The framework remembers that as a partial
-    match and keeps looking, so the import route still wins — but only
-    because there is no POST route on the identifier itself.
-    """
-    paths = _paths()
-    assert "/organizations/{org_id}/submodels/import" in paths
-    post_paths = [
-        route.path
-        for route in _routes()
-        if "POST" in (route.methods or set())
-    ]
-    assert "/organizations/{org_id}/submodels/{submodel_id}" not in post_paths
-
-
 def test_the_trained_extension_feature_is_gone() -> None:
     """The extension subsystem was removed; nothing serves it any more."""
     paths = _paths()
     assert not [path for path in paths if "/extensions" in path]
+
+
+def test_the_submodel_feature_is_gone() -> None:
+    """The submodel subsystem was removed; nothing serves it any more."""
+    paths = _paths()
+    assert not [path for path in paths if "submodel" in path]
