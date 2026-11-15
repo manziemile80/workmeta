@@ -23,7 +23,6 @@ from fastapi import (
     File,
     Form,
     Request,
-    Response,
     UploadFile,
 )
 from fastapi.responses import PlainTextResponse
@@ -321,75 +320,6 @@ async def retire(
     await session.refresh(submodel)
     await session.commit()
     return await _submodel_read(session, submodel)
-
-
-@router.delete(
-    "/{submodel_id}/purge",
-    status_code=204,
-    summary="Permanently delete a submodel and all of its data (admin)",
-)
-async def purge_submodel(
-    submodel_id: uuid.UUID,
-    request: Request,
-    context: OrgContext = Depends(require_org_admin),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-    storage: StorageProvider = Depends(get_storage),  # noqa: B008
-) -> Response:
-    """Hard-delete a submodel and everything that belongs to it.
-
-    Unlike ``retire``, this removes the row (and, through ``ON DELETE CASCADE``,
-    its materials, procedures, tests and action plans) and the stored files.
-    The runtime role has no DELETE privilege, so the removal runs through the
-    owner connection.
-    """
-    submodel = await _owned_submodel(
-        session, org_id=context.org_id, submodel_id=submodel_id
-    )
-
-    materials = (
-        await session.scalars(
-            select(SubmodelMaterial).where(
-                SubmodelMaterial.org_id == context.org_id,
-                SubmodelMaterial.submodel_id == submodel.id,
-            )
-        )
-    ).all()
-    storage_keys = [m.storage_key for m in materials if m.storage_key]
-
-    from sqlalchemy.ext.asyncio import create_async_engine
-    from sqlalchemy.pool import NullPool
-
-    settings = get_settings()
-    owner = create_async_engine(settings.database_migration_url, poolclass=NullPool)
-    try:
-        async with owner.begin() as conn:
-            await conn.execute(
-                __import__("sqlalchemy").text(
-                    "DELETE FROM submodels WHERE id = :id AND org_id = :org"
-                ),
-                {"id": submodel.id, "org": context.org_id},
-            )
-    finally:
-        await owner.dispose()
-
-    for key in storage_keys:
-        try:
-            await storage.delete(key)
-        except Exception:  # noqa: BLE001
-            logger.exception("submodel_purge_storage_failed", key=key)
-
-    await audit.record(
-        session,
-        action="submodel.purged",
-        org_id=context.org_id,
-        actor_user_id=context.user.id,
-        actor_role=context.role,
-        resource_type="submodel",
-        resource_id=str(submodel_id),
-        request=request,
-    )
-    await session.commit()
-    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------

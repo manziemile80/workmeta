@@ -105,24 +105,22 @@ async def build_package_document(
     payload = build_package(submodel, workflows)
     canonical = extension_signing.canonical_json(payload)
 
-    if extension_signing.is_signing_configured():
-        signature = extension_signing.sign_bytes(canonical)
-        public_key = extension_signing.public_key_pem() or ""
-        signing_key_id = extension_signing.signing_key_id()
-    else:
-        # No signing key configured: produce an unsigned package so the
-        # download-and-install path still works in development. The installer
-        # is told plainly that the package is unsigned and must confirm.
-        signature = ""
-        public_key = ""
-        signing_key_id = ""
+    if not extension_signing.is_signing_configured():
+        raise AppError(
+            "Exporting a submodel needs a signing key on this deployment. "
+            "Set EXTENSION_SIGNING_PRIVATE_KEY.",
+            status_code=503,
+            code="submodel_signing_unavailable",
+        )
 
+    signature = extension_signing.sign_bytes(canonical)
+    public_key = extension_signing.public_key_pem() or ""
     return ExportablePackage(
         filename=f"{submodel.slug}-v{submodel.version}.wmsubmodel.json",
         payload=payload,
         canonical=canonical,
         signature=signature,
-        signing_key_id=signing_key_id,
+        signing_key_id=extension_signing.signing_key_id(),
         public_key=public_key,
         digest=hashlib.sha256(canonical).hexdigest(),
     )
