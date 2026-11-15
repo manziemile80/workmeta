@@ -13,7 +13,7 @@ observed on this workstation. Detailed per-item status lives in
 | Check | Command | Result |
 |---|---|---|
 | Lint | `ruff check .` (apps/api) | **PASS** — no findings |
-| Unit tests | `pytest -q` | **PASS** — 106 collected, 58 passed, 48 skipped (the skipped ones need a database) |
+| Unit tests | `pytest -q` | **PASS** — 110 collected, 62 passed, 48 skipped (the skipped ones need a database) |
 
 ### 1.2 Backend — integration suite against the live Neon database
 Run with `RUN_DB_TESTS=1` against `ep-mute-base-be5pm73v` (Neon, us-east-2),
@@ -94,6 +94,29 @@ ever talks to one origin and the session cookie stays first-party.
 | `tools/scripts/smoke_local_api.py` | New | Repeatable live smoke test of health, readiness, auth, CSRF and tenant isolation against a running API. |
 | `docs/*.md` | Corrected expectations | `/api/v1/health` does **not** return `database`/`pgvector` (those live on `/api/v1/ready`), and cross-tenant reads return **404**, not 403. |
 
+### 2.1 In-process worker (new)
+
+Render's Free plan has no background-worker service. Without a worker, an
+uploaded document stays `queued` forever: the knowledge base never fills up
+and retrieval finds nothing. The API now runs the same loops in-process.
+
+| Path | Change | Reason |
+|---|---|---|
+| `apps/api/app/workers/embedded.py` | New — ingestion + billing loop with a stop event | Drains the queue inside the API process. Safe next to a dedicated worker: jobs are claimed with `FOR UPDATE SKIP LOCKED`, so no job is processed twice. |
+| `apps/api/app/main.py` | Lifespan starts the loop and drains it on shutdown | The worker shares the app's lifetime; shutdown waits up to 5s for the current job before cancelling. |
+| `apps/api/app/core/config.py` | `embedded_worker_enabled`, `embedded_worker_billing_seconds` | Off by default — a dedicated worker stays the default deployment. |
+| `apps/api/tests/test_embedded_worker.py` | New (4 tests) | Drains the queue, survives a failing poll, sweeps billing once per interval, starts and stops with the app. |
+| `render.yaml`, `.env.example` | `EMBEDDED_WORKER_ENABLED=true` on the Free service | Free has no worker service; the API has to drain its own queue. |
+
+Verified against the live Neon database with `EMBEDDED_WORKER_ENABLED=true`:
+
+| Observation | Result |
+|---|---|
+| `embedded_worker_started poll_seconds=2.0` | Logged at startup, next to `api_starting` |
+| A stale queued job from the previous session was claimed and processed | `ingestion_job_claimed job_id=afacbba4-…` |
+| The job failed (its stored blob was gone) and was re-queued with backoff | `ingestion_job_failed error_type=AppError`, job back to `queued` with `attempts=1` — the loop kept running |
+| Full smoke test with the worker running | **19/19 checks passed** |
+
 ---
 
 ## 3. Corrections to earlier documentation
@@ -120,6 +143,7 @@ fixed:
 | `wm_app` runtime role | **Live** | Restricted: no superuser, no bypassrls |
 | Platform owner | **Seeded** | Credentials in `.env` (gitignored) |
 | Backend build (Dockerfile, `render.yaml`) | **Configuration-ready** | 40+ env vars, secrets `sync: false` |
+| Background workers | **In-process** | `EMBEDDED_WORKER_ENABLED=true` covers the Free plan, which has no worker service; a dedicated worker is preferred on paid plans |
 | Frontend build (Vercel) | **Build verified** | `npm run build:web` passes locally |
 | Render service | **Not deployed** | Needs an authenticated Render account |
 | Vercel project | **Not deployed** | Needs an authenticated Vercel account |

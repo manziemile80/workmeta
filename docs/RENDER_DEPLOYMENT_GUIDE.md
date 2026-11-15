@@ -83,6 +83,7 @@ Navigate to **Service → Environment** and add each variable (click "Add Variab
 | `RATE_LIMIT_INVITE_ACCEPT_PER_MINUTE` | `60` | false | Invite accept rate limit |
 | `RATE_LIMIT_WEBHOOK_PER_MINUTE` | `300` | false | Webhook rate limit |
 | `RATE_LIMIT_CHAT_PER_MINUTE` | `300` | false | Chat rate limit |
+| `EMBEDDED_WORKER_ENABLED` | `true` | false | Free has no worker service, so the API drains its own queue in-process |
 
 ### Step 3: Deploy
 1. In the Render Dashboard, go to **Service → Deploys**
@@ -153,13 +154,25 @@ The `render.yaml` file in the repo root is pre-configured with all 40+ env vars.
 ## BACKGROUND WORKERS (Free Tier Note)
 **Important:** The Render Free tier does NOT support background worker services.
 
-- **Ingestion worker** (`app.workers.ingestion`): Uploads commit to queue; documents stay `uploaded/processing` until a worker drains
-- **Billing worker** (`app.workers.billing`): Lifecycle advances lazily via `ensure_subscription` on every billing/quota read (no scheduler needed)
+The API therefore runs the worker loops in-process
+(`EMBEDDED_WORKER_ENABLED=true`, implemented in `app/workers/embedded.py`):
+
+- **Ingestion worker** (`app.workers.ingestion`): uploads are chunked and
+  embedded a few seconds after they are queued, while the instance is awake.
+  While the service sleeps, the queued rows stay `queued` and are processed
+  after the cold start — the queue is durable, so nothing is lost.
+- **Billing worker** (`app.workers.billing`): the embedded sweep advances the
+  subscription lifecycle in the background; it also advances lazily via
+  `ensure_subscription` on every billing/quota read (no scheduler needed).
+
+The embedded loop is safe to run next to a dedicated worker: ingestion jobs
+are claimed with `FOR UPDATE SKIP LOCKED`, so no job is processed twice.
 
 ### Free Tier Workaround
-- Run migrations and drainage manually via **Render Shell** (no always-on worker needed)
-- Or upgrade to paid plan for always-on workers
-- For now, keep `BILLING_PROVIDER=mock` and skip ingestion testing until a paid plan or manual schedule is set
+- Keep `EMBEDDED_WORKER_ENABLED=true` (set in `render.yaml`) so the queue drains
+- Run migrations manually via **Render Shell** (Free has no pre-deploy hook)
+- Or upgrade to a paid plan, deploy `python -m app.workers.ingestion` as its own
+  worker service and set `EMBEDDED_WORKER_ENABLED=false`
 
 ## MIGRATION EXECUTION (Should Already Be Done)
 Since the Neon database already has all migrations applied:

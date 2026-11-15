@@ -62,9 +62,11 @@ Or Render → Shell → same command with the service env loaded. Verify:
 ## Free-tier limits (what cannot run)
 
 - **Ingestion worker** (`app.workers.ingestion`) — no separate service on Free.
-  Uploads commit + queue; documents stay `uploaded/processing` until a worker
-  drains. Run manually on a schedule (Render Shell / local `--drain`).
-- **Billing worker** (`app.workers.billing`) — same; lifecycle still advances
+  The API runs the same loop in-process (`EMBEDDED_WORKER_ENABLED=true`), so
+  uploads are ingested a few seconds after they are queued while the instance
+  is awake. On a paid plan run the worker as its own service and set
+  `EMBEDDED_WORKER_ENABLED=false`.
+- **Billing worker** (`app.workers.billing`) — same; lifecycle also advances
   lazily via `ensure_subscription` on every billing/quota read (no scheduler needed).
 - **Ephemeral disk** — `STORAGE_DIR` resets on restart; re-upload after restart.
 - **Sleep** — service cold-starts (~30–60s) after inactivity; set Render health

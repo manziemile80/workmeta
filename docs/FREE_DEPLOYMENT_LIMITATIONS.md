@@ -5,12 +5,20 @@ Development-only. Never use these limits for production.
 ## Render Free Web Service
 - **Sleeps** after ~15 min inactivity; first request cold-starts (~30–60s).
 - **Single instance**, 512 MB RAM; dashboards show `onrender.com` host.
-- **No background workers** — ingestion/billing workers cannot run.
+- **No background-worker service** — the workers run inside the API process
+  instead (`EMBEDDED_WORKER_ENABLED=true`, see `app/workers/embedded.py`).
 
-### What breaks without workers
-- **Document ingestion** stays `uploaded/processing` (queued rows are durable; run `python -m app.workers.ingestion --drain` manually on a schedule when you need it).
-- **Billing lifecycle** still advances lazily on every billing/quota read (`ensure_subscription`), so trials/past-due/expiry stay correct without the billing worker.
-- `app_is_worker()` gate and tenant isolation are untouched.
+### What the in-process worker changes
+- **Document ingestion** is processed while the instance is awake: uploads are
+  chunked and embedded a few seconds after they are queued. While the service
+  sleeps, queued rows stay `queued` and are picked up after the cold start.
+  The queue is durable, so nothing is lost.
+- **Billing lifecycle** still advances lazily on every billing/quota read
+  (`ensure_subscription`), and the embedded sweep advances it in the
+  background as well, so trials/past-due/expiry stay correct.
+- `app_is_worker()` gate and tenant isolation are untouched. Jobs are claimed
+  with `FOR UPDATE SKIP LOCKED`, so an embedded worker and a dedicated worker
+  never process the same job.
 
 ## Disk
 - **Ephemeral** — `STORAGE_DIR=/app/var/storage` resets on restart/redeploy. Uploaded blobs vanish; re-upload after restart.

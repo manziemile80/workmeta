@@ -77,6 +77,7 @@ python -m alembic current  # Should print head
    - `RATE_LIMIT_INVITE_ACCEPT_PER_MINUTE=60`
    - `RATE_LIMIT_WEBHOOK_PER_MINUTE=300`
    - `RATE_LIMIT_CHAT_PER_MINUTE=300`
+   - `EMBEDDED_WORKER_ENABLED=true` (Free has no worker service; the API drains its own queue in-process)
 
 ### 4. Deploy Frontend to Vercel
 1. Install Vercel CLI (or use dashboard)

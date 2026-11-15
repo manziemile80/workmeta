@@ -69,6 +69,7 @@ Navigate to Service → Environment and add each variable:
 | `RATE_LIMIT_INVITE_ACCEPT_PER_MINUTE` | `60` | Invite accept rate limit |
 | `RATE_LIMIT_WEBHOOK_PER_MINUTE` | `300` | Webhook rate limit |
 | `RATE_LIMIT_CHAT_PER_MINUTE` | `300` | Chat rate limit |
+| `EMBEDDED_WORKER_ENABLED` | `true` | Free has no worker service, so the API drains its own queue in-process |
 
 ## Step 3: Deploy and Verify
 ```powershell

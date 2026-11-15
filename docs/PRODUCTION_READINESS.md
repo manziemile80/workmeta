@@ -42,9 +42,12 @@
   - Python image: `python:3.12-slim-bookworm` (matches Dockerfile)
   - Health check: `/api/v1/health` (liveness; `/api/v1/ready` probes DB)
   - **Missing**: Persistent storage configuration (`workmeta_storage` volume not declared)
-  - **Missing**: Background worker service (ingestion + billing workers not configured on Free tier)
+  - **Worker service**: Free has no background-worker service, so the API runs
+    the ingestion/billing loops in-process (`EMBEDDED_WORKER_ENABLED=true`,
+    `app/workers/embedded.py`). On a paid plan, run
+    `python -m app.workers.ingestion` as its own service and disable it.
   - **Free-tier limits**: Single instance, cold starts after inactivity, ephemeral disk,
-    no background workers, uploads/ingestion stay queued
+    uploads/ingestion are processed while the instance is awake
 - **`apps/api/Dockerfile`**: Multi-stage build, healthcheck on `:8000`, listens on `0.0.0.0:$PORT`
 - **Dockerfile compatibility**: Verified against render.yaml configuration
 
