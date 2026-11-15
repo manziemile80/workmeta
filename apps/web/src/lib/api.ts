@@ -1,6 +1,43 @@
 /** Typed API client for the WorkMeta AI backend. */
 
-const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "";
+/**
+ * Origin the API is served from.
+ *
+ * - `""` (the default) means "same origin as this page". The Vercel rewrite
+ *   in `vercel.json` forwards `/api/*` to the backend, so requests stay
+ *   first-party and the session cookie is never cross-site.
+ * - An absolute origin (e.g. `https://workmeta-api.onrender.com`) calls the
+ *   backend directly, which requires CORS and `SameSite=None; Secure` cookies.
+ *
+ * The request builder always appends `/api/v1`, so a redundant trailing
+ * `/api` or `/api/v1` is stripped here.
+ */
+function normaliseBaseUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+
+  // Path-style value (e.g. "/api"): a prefix on this same origin.
+  if (trimmed.startsWith("/")) {
+    const stripped = trimmed.replace(/\/+$/, "").replace(/\/api(\/v1)?$/, "");
+    return stripped;
+  }
+
+  // Absolute URL: keep the origin, drop a redundant path suffix.
+  try {
+    const url = new URL(trimmed);
+    url.pathname = url.pathname.replace(/\/+$/, "").replace(/\/api(\/v1)?$/, "");
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return trimmed.replace(/\/+$/, "");
+  }
+}
+
+const API_BASE_URL: string = normaliseBaseUrl(
+  import.meta.env.VITE_API_BASE_URL ?? "",
+);
+
+/** Versioned API root. The backend mounts every route under this prefix. */
+const API_ROOT = "/api/v1";
 
 export interface HealthResponse {
   status: "ok";
@@ -78,7 +115,7 @@ async function request<T>(
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetch(`${API_BASE_URL}${API_ROOT}${path}`, {
       headers,
       method,
       body: payload,
@@ -88,7 +125,7 @@ async function request<T>(
     throw new ApiRequestError(
       0,
       "network_unreachable",
-      "Cannot reach the API. Is the backend running on port 8000?",
+      "Cannot reach the API. Is the backend running?",
     );
   }
 
@@ -119,14 +156,16 @@ async function request<T>(
 }
 
 export const fetchHealth = (): Promise<HealthResponse> =>
-  request<HealthResponse>("/api/v1/health");
+  request<HealthResponse>("/health");
 
 export const fetchReady = (): Promise<ReadyResponse> =>
-  request<ReadyResponse>("/api/v1/ready");
+  request<ReadyResponse>("/ready");
 
-export const docsUrl = API_BASE_URL
-  ? `${API_BASE_URL}/docs`
-  : "http://localhost:8000/docs";
+/**
+ * OpenAPI browser. The backend serves `/docs` at its root, not under
+ * `/api/v1`, so this cannot be built from `API_ROOT`.
+ */
+export const docsUrl = `${API_BASE_URL}/docs`;
 
 // ---------------------------------------------------------------------------
 // Auth
