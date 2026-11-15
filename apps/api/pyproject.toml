@@ -7,7 +7,7 @@ name = "workmeta-api"
 version = "0.1.0"
 description = "WorkMeta AI platform API"
 readme = "README.md"
-requires-python = ">=3.12,<3.14"
+requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.14,<2.0",
   "argon2-cffi>=23.1,<26.0",

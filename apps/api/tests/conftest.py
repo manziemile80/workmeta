@@ -106,3 +106,44 @@ async def owner_token(owner_credentials: dict[str, str]) -> str:
     token = response.json()["access_token"]
     assert isinstance(token, str)
     return token
+
+
+# Limits seeded by alembic/versions/20261110_0005_stage5_billing.py. The billing
+# tests tighten these on the shared Free plan row to exercise the quota guards
+# and restore them afterwards. If a test run is killed mid-test the restore
+# never happens, and every later run would inherit the tightened limits - so the
+# row is reset to the seeded values before each session.
+FREE_PLAN_DEFAULTS: dict[str, int] = {
+    "max_assistants": 20,
+    "max_documents": 500,
+    "monthly_request_allowance": 100_000,
+    "monthly_token_allowance": 10_000_000,
+}
+
+
+@pytest.fixture(scope="session", autouse=True)
+async def reset_shared_free_plan():
+    """Restore the seeded Free plan limits before the test session starts."""
+    if not RUN_DB_TESTS:
+        yield
+        return
+
+    settings = get_settings()
+    async with temp_engine(settings.database_migration_url) as engine:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE subscription_plans SET "
+                    "max_assistants = :a, max_documents = :d, "
+                    "monthly_request_allowance = :r, "
+                    "monthly_token_allowance = :t "
+                    "WHERE code = 'free'"
+                ),
+                {
+                    "a": FREE_PLAN_DEFAULTS["max_assistants"],
+                    "d": FREE_PLAN_DEFAULTS["max_documents"],
+                    "r": FREE_PLAN_DEFAULTS["monthly_request_allowance"],
+                    "t": FREE_PLAN_DEFAULTS["monthly_token_allowance"],
+                },
+            )
+    yield

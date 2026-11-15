@@ -26,8 +26,12 @@ engine = create_async_engine(
     max_overflow=10,
     pool_recycle=1800,
     connect_args={
-        # Fail fast when PostgreSQL is unavailable so readiness checks stay snappy.
-        "timeout": 5,
+        # Connect timeout. A pooled connection to a managed database (Neon) can
+        # take several seconds to establish on a cold pool, so this must stay
+        # comfortably above that latency: failing the connect would abort the
+        # request instead of letting it wait for the pooler.
+        "timeout": 20,
+        # Query timeout. Bounds how long a single statement may run.
         "command_timeout": 30,
         "server_settings": {"application_name": "workmeta-api"},
     },
