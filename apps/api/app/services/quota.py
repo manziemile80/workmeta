@@ -354,6 +354,7 @@ async def guard_submodel_create(
             plan=context.plan,
             limit_type="submodels",
             used=used,
+            limit=limit,
             requested=1,
         )
 
