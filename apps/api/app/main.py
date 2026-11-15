@@ -5,6 +5,8 @@ Your Business. Your AI. Your Way.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -25,9 +27,14 @@ from app.core.middleware import (
     SecurityHeadersMiddleware,
 )
 from app.db.session import dispose_engine
+from app.workers.embedded import run_embedded_worker
 
 settings = get_settings()
 logger = structlog.get_logger(__name__)
+
+# How long the shutdown waits for the embedded worker to finish its current
+# job before the task is cancelled.
+_WORKER_SHUTDOWN_GRACE_SECONDS = 5.0
 
 
 @asynccontextmanager
@@ -42,9 +49,26 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         version=settings.app_version,
         environment=settings.app_env,
     )
+
+    stop_worker = asyncio.Event()
+    worker_task: asyncio.Task[None] | None = None
+    if settings.embedded_worker_enabled:
+        # Single-instance deployments (Render Free) have no worker service,
+        # so the API drains its own queue. See app/workers/embedded.py.
+        worker_task = asyncio.create_task(run_embedded_worker(stop_worker))
+
     try:
         yield
     finally:
+        stop_worker.set()
+        if worker_task is not None:
+            _, pending = await asyncio.wait(
+                {worker_task}, timeout=_WORKER_SHUTDOWN_GRACE_SECONDS
+            )
+            if pending:
+                worker_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await worker_task
         await dispose_engine()
         logger.info("api_stopped")
 

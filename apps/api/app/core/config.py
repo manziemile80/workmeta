@@ -107,6 +107,16 @@ class Settings(BaseSettings):
     ingestion_max_attempts: int = 3
     worker_poll_seconds: float = 2.0
 
+    # Background workers. A dedicated worker process is preferred, but the
+    # Render Free plan has no worker service: without an in-process loop the
+    # ingestion queue would never drain and uploaded documents would stay
+    # "queued" forever, so retrieval would find nothing. Set
+    # EMBEDDED_WORKER_ENABLED=true to run the same loops inside the API
+    # process. Safe to run next to a dedicated worker: ingestion jobs are
+    # claimed with FOR UPDATE SKIP LOCKED, so a job is never processed twice.
+    embedded_worker_enabled: bool = False
+    embedded_worker_billing_seconds: float = 300.0
+
     # OCR (optional). "none" keeps image/scanned-PDF uploads disabled.
     ocr_engine: Literal["none", "tesseract"] = "none"
     ocr_language: str = "eng"
@@ -273,11 +283,18 @@ class Settings(BaseSettings):
             raise ValueError("OCR settings must be positive")
         return value
 
-    @field_validator("stream_heartbeat_seconds")
+    @field_validator("stream_heartbeat_seconds", "worker_poll_seconds")
     @classmethod
     def _non_negative_heartbeat(cls, value: float) -> float:
         if value < 0:
             raise ValueError("stream_heartbeat_seconds must be non-negative")
+        return value
+
+    @field_validator("embedded_worker_billing_seconds")
+    @classmethod
+    def _positive_billing_interval(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("embedded_worker_billing_seconds must be positive")
         return value
 
     @field_validator("billing_currency")

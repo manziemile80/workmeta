@@ -15,8 +15,9 @@
 #
 # Free limits (honest): single instance, sleeps after inactivity (cold starts),
 # ephemeral disk (STORAGE_DIR resets on restart), no background workers.
-# Uploads/ingestion stay queued until a worker runs; billing stays correct
-# because lifecycle advances lazily. See docs/RENDER_DEPLOYMENT.md.
+# Uploads/ingestion are processed by the in-process worker loop
+# (EMBEDDED_WORKER_ENABLED=true), billing stays correct because lifecycle
+# advances lazily. See docs/RENDER_DEPLOYMENT.md.
 
 services:
   - type: web
@@ -118,3 +119,10 @@ services:
         value: "300"
       - key: RATE_LIMIT_CHAT_PER_MINUTE
         value: "300"
+      # Render Free has no background-worker service, so the API would never
+      # drain the ingestion queue and uploaded documents would stay "queued".
+      # The API runs the worker loop in-process instead
+      # (app/workers/embedded.py). On a paid plan, deploy a dedicated worker
+      # (`python -m app.workers.ingestion`) and set this to "false".
+      - key: EMBEDDED_WORKER_ENABLED
+        value: "true"
