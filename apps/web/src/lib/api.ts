@@ -1,43 +1,16 @@
 /** Typed API client for the WorkMeta AI backend. */
 
 /**
- * Origin the API is served from.
+ * Root of the backend API, including the version segment.
  *
- * - `""` (the default) means "same origin as this page". The Vercel rewrite
- *   in `vercel.json` forwards `/api/*` to the backend, so requests stay
- *   first-party and the session cookie is never cross-site.
- * - An absolute origin (e.g. `https://workmeta-api.onrender.com`) calls the
- *   backend directly, which requires CORS and `SameSite=None; Secure` cookies.
- *
- * The request builder always appends `/api/v1`, so a redundant trailing
- * `/api` or `/api/v1` is stripped here.
+ * In production the frontend is served from the same origin as the API and
+ * Vercel proxies `/api/*` to Render, so the default `/api/v1` works without
+ * any configuration. `VITE_API_BASE_URL` can point somewhere else (for
+ * example `http://127.0.0.1:8000/api/v1` during local development).
  */
-function normaliseBaseUrl(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return "";
-
-  // Path-style value (e.g. "/api"): a prefix on this same origin.
-  if (trimmed.startsWith("/")) {
-    const stripped = trimmed.replace(/\/+$/, "").replace(/\/api(\/v1)?$/, "");
-    return stripped;
-  }
-
-  // Absolute URL: keep the origin, drop a redundant path suffix.
-  try {
-    const url = new URL(trimmed);
-    url.pathname = url.pathname.replace(/\/+$/, "").replace(/\/api(\/v1)?$/, "");
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return trimmed.replace(/\/+$/, "");
-  }
-}
-
-const API_BASE_URL: string = normaliseBaseUrl(
-  import.meta.env.VITE_API_BASE_URL ?? "",
-);
-
-/** Versioned API root. The backend mounts every route under this prefix. */
-const API_ROOT = "/api/v1";
+const API_BASE_URL: string = (
+  import.meta.env.VITE_API_BASE_URL ?? "/api/v1"
+).replace(/\/+$/, "");
 
 export interface HealthResponse {
   status: "ok";
@@ -45,6 +18,8 @@ export interface HealthResponse {
   version: string;
   environment: string;
   uptime_seconds: number;
+  database_configured: boolean;
+  docs_enabled: boolean;
 }
 
 export interface ReadyResponse {
@@ -105,8 +80,14 @@ async function request<T>(
   const method = (options.method ?? "GET").toUpperCase();
   let payload: BodyInit | undefined;
   if (options.body !== undefined) {
-    headers["Content-Type"] = "application/json";
-    payload = JSON.stringify(options.body);
+    // FormData carries its own multipart boundary: the browser has to set the
+    // content type itself.
+    if (options.body instanceof FormData) {
+      payload = options.body;
+    } else {
+      headers["Content-Type"] = "application/json";
+      payload = JSON.stringify(options.body);
+    }
   }
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
     const csrf = readCsrfCookie();
@@ -115,7 +96,7 @@ async function request<T>(
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${API_ROOT}${path}`, {
+    response = await fetch(`${API_BASE_URL}${path}`, {
       headers,
       method,
       body: payload,
@@ -125,7 +106,7 @@ async function request<T>(
     throw new ApiRequestError(
       0,
       "network_unreachable",
-      "Cannot reach the API. Is the backend running?",
+      "Cannot reach the API. Is the backend running on port 8000?",
     );
   }
 
@@ -162,10 +143,13 @@ export const fetchReady = (): Promise<ReadyResponse> =>
   request<ReadyResponse>("/ready");
 
 /**
- * OpenAPI browser. The backend serves `/docs` at its root, not under
- * `/api/v1`, so this cannot be built from `API_ROOT`.
+ * Location of the interactive API documentation.
+ *
+ * The docs are served from the backend root (not below `/api/v1`) and are
+ * disabled in production, so the client only shows the link when
+ * `/api/v1/health` reports `docs_enabled`.
  */
-export const docsUrl = `${API_BASE_URL}/docs`;
+export const docsUrl: string = `${API_BASE_URL.replace(/\/api\/v1$/, "")}/docs`;
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -217,6 +201,29 @@ export function login(
   });
 }
 
+export interface RegisterPayload {
+  full_name: string;
+  email: string;
+  password: string;
+  organization_name: string;
+  country: string;
+}
+
+/**
+ * Create an account, its first organization and the Free subscription.
+ *
+ * The API signs the new person in, so the response carries the same session
+ * payload as `login`.
+ */
+export function registerAccount(
+  payload: RegisterPayload,
+): Promise<LoginResponse> {
+  return request<LoginResponse>("/auth/register", {
+    method: "POST",
+    body: payload,
+  });
+}
+
 export function fetchMe(): Promise<LoginResponse> {
   return request<LoginResponse>("/auth/me");
 }
@@ -232,6 +239,363 @@ export function switchOrganization(
     method: "POST",
     body: { org_id: orgId },
   });
+}
+
+export interface AssistantSummary {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+}
+
+export function fetchAssistants(orgId: string): Promise<AssistantSummary[]> {
+  return request<AssistantSummary[]>(`/organizations/${orgId}/assistants`);
+}
+
+// ---------------------------------------------------------------------------
+// Training steps, shared by every workflow on the platform
+// ---------------------------------------------------------------------------
+
+export interface ProcedureStep {
+  order: number;
+  instruction: string;
+  where?: string | null;
+  value?: string | null;
+  expected_result?: string | null;
+  sensitive?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// WorkMeta AI Submodels
+// ---------------------------------------------------------------------------
+
+export interface Submodel {
+  id: string;
+  org_id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  task: string;
+  system_code: string;
+  system_name: string;
+  system_version: string;
+  target_kind: "web" | "desktop";
+  status: string;
+  training_status: string;
+  origin: "trained" | "imported";
+  source_label: string | null;
+  source_digest: string | null;
+  permissions: Record<string, unknown>;
+  capabilities: unknown[];
+  version: number;
+  package_signature: string | null;
+  signing_key_id: string | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+  materials_count: number;
+  workflows_count: number;
+  approved_workflows_count: number;
+  tests_count: number;
+  passed_tests_count: number;
+}
+
+export interface SubmodelCreate {
+  name: string;
+  task: string;
+  system_code: string;
+  system_name: string;
+  system_version: string;
+  description?: string | null;
+  target_kind?: "web" | "desktop";
+  permissions?: Record<string, unknown>;
+}
+
+export interface SubmodelMaterial {
+  id: string;
+  org_id: string;
+  submodel_id: string;
+  kind: "video" | "audio" | "document" | "note";
+  title: string;
+  filename: string | null;
+  mime_type: string | null;
+  size_bytes: number;
+  status: string;
+  extracted_text: string | null;
+  extracted_units: number | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface SubmodelWorkflow {
+  id: string;
+  org_id: string;
+  submodel_id: string;
+  title: string;
+  summary: string | null;
+  steps: ProcedureStep[];
+  source_material_ids: string[];
+  confidence: number;
+  status: "draft" | "approved" | "rejected";
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubmodelTest {
+  id: string;
+  org_id: string;
+  submodel_id: string;
+  question: string;
+  expected_points: string[];
+  answer: string | null;
+  covered_points: string[];
+  missed_points: string[];
+  score: number;
+  outcome: "passed" | "failed" | "error";
+  created_at: string;
+}
+
+export interface SubmodelPackage {
+  filename: string;
+  digest: string;
+  signing_key_id: string;
+  verified: boolean;
+  reason: string;
+  workflow_count: number;
+  payload: Record<string, unknown>;
+}
+
+export interface SubmodelTrainingResult {
+  submodel_id: string;
+  training_status: string;
+  workflows: SubmodelWorkflow[];
+  analysed_materials: number;
+  analysed_characters: number;
+  message: string;
+}
+
+export interface SubmodelGuidance {
+  submodel_id: string;
+  task: string;
+  answer: string;
+  steps: ProcedureStep[];
+  grounded: boolean;
+  workflows_used: string[];
+  model: string | null;
+  usage: Record<string, number>;
+}
+
+export function fetchSubmodels(orgId: string): Promise<Submodel[]> {
+  return request<Submodel[]>(`/organizations/${orgId}/submodels`);
+}
+
+export function createSubmodel(
+  orgId: string,
+  payload: SubmodelCreate,
+): Promise<Submodel> {
+  return request<Submodel>(`/organizations/${orgId}/submodels`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function updateSubmodel(
+  orgId: string,
+  submodelId: string,
+  payload: Partial<SubmodelCreate>,
+): Promise<Submodel> {
+  return request<Submodel>(`/organizations/${orgId}/submodels/${submodelId}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export function retireSubmodel(
+  orgId: string,
+  submodelId: string,
+): Promise<Submodel> {
+  return request<Submodel>(`/organizations/${orgId}/submodels/${submodelId}`, {
+    method: "DELETE",
+  });
+}
+
+export function fetchSubmodelMaterials(
+  orgId: string,
+  submodelId: string,
+): Promise<SubmodelMaterial[]> {
+  return request<SubmodelMaterial[]>(
+    `/organizations/${orgId}/submodels/${submodelId}/materials`,
+  );
+}
+
+export function addSubmodelMaterialNote(
+  orgId: string,
+  submodelId: string,
+  payload: { title: string; text: string },
+): Promise<SubmodelMaterial> {
+  return request<SubmodelMaterial>(
+    `/organizations/${orgId}/submodels/${submodelId}/materials/notes`,
+    { method: "POST", body: payload },
+  );
+}
+
+export function uploadSubmodelMaterial(
+  orgId: string,
+  submodelId: string,
+  file: File,
+  title: string,
+): Promise<SubmodelMaterial> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("title", title);
+  return request<SubmodelMaterial>(
+    `/organizations/${orgId}/submodels/${submodelId}/materials/upload`,
+    { method: "POST", body: form },
+  );
+}
+
+export function readSubmodelMaterial(
+  orgId: string,
+  submodelId: string,
+  materialId: string,
+): Promise<SubmodelMaterial> {
+  return request<SubmodelMaterial>(
+    `/organizations/${orgId}/submodels/${submodelId}/materials/${materialId}/read`,
+    { method: "POST" },
+  );
+}
+
+export function archiveSubmodelMaterial(
+  orgId: string,
+  submodelId: string,
+  materialId: string,
+): Promise<SubmodelMaterial> {
+  return request<SubmodelMaterial>(
+    `/organizations/${orgId}/submodels/${submodelId}/materials/${materialId}`,
+    { method: "DELETE" },
+  );
+}
+
+export function trainSubmodel(
+  orgId: string,
+  submodelId: string,
+): Promise<SubmodelTrainingResult> {
+  return request<SubmodelTrainingResult>(
+    `/organizations/${orgId}/submodels/${submodelId}/train`,
+    { method: "POST" },
+  );
+}
+
+export function fetchSubmodelWorkflows(
+  orgId: string,
+  submodelId: string,
+): Promise<SubmodelWorkflow[]> {
+  return request<SubmodelWorkflow[]>(
+    `/organizations/${orgId}/submodels/${submodelId}/workflows`,
+  );
+}
+
+export function updateSubmodelWorkflow(
+  orgId: string,
+  submodelId: string,
+  workflowId: string,
+  payload: { status: "draft" | "approved" | "rejected" },
+): Promise<SubmodelWorkflow> {
+  return request<SubmodelWorkflow>(
+    `/organizations/${orgId}/submodels/${submodelId}/workflows/${workflowId}`,
+    { method: "PATCH", body: payload },
+  );
+}
+
+export function fetchSubmodelTests(
+  orgId: string,
+  submodelId: string,
+): Promise<SubmodelTest[]> {
+  return request<SubmodelTest[]>(
+    `/organizations/${orgId}/submodels/${submodelId}/tests`,
+  );
+}
+
+export function runSubmodelTest(
+  orgId: string,
+  submodelId: string,
+  payload: { question: string; expected_points: string[] },
+): Promise<SubmodelTest> {
+  return request<SubmodelTest>(
+    `/organizations/${orgId}/submodels/${submodelId}/tests`,
+    { method: "POST", body: payload },
+  );
+}
+
+export function fetchSubmodelPackage(
+  orgId: string,
+  submodelId: string,
+): Promise<SubmodelPackage> {
+  return request<SubmodelPackage>(
+    `/organizations/${orgId}/submodels/${submodelId}/package`,
+  );
+}
+
+/**
+ * The signed package as a file.
+ *
+ * The download is a plain JSON document, so it is fetched through the normal
+ * request path and turned into a blob the browser can save.
+ */
+export async function downloadSubmodelPackage(
+  orgId: string,
+  submodelId: string,
+): Promise<{ filename: string; content: string }> {
+  const response = await fetch(
+    `${API_BASE_URL}/organizations/${orgId}/submodels/${submodelId}/download`,
+    { credentials: "include", headers: { Accept: "application/json" } },
+  );
+  if (!response.ok) {
+    let code = "request_failed";
+    let message = `Request failed with status ${response.status}.`;
+    const parsed = (await response.json().catch(() => null)) as
+      | ErrorEnvelope
+      | null;
+    if (parsed?.error) {
+      code = parsed.error.code ?? code;
+      message = parsed.error.message ?? message;
+    }
+    throw new ApiRequestError(response.status, code, message);
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  return {
+    filename: match?.[1] ?? `submodel-${submodelId}.wmsubmodel.json`,
+    content: await response.text(),
+  };
+}
+
+export function installSubmodel(
+  orgId: string,
+  file: File,
+  label?: string,
+): Promise<Submodel> {
+  const form = new FormData();
+  form.append("file", file);
+  if (label) {
+    form.append("label", label);
+  }
+  return request<Submodel>(`/organizations/${orgId}/submodels/import`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export function askSubmodel(
+  orgId: string,
+  submodelId: string,
+  payload: { question: string; context?: Record<string, unknown> },
+): Promise<SubmodelGuidance> {
+  return request<SubmodelGuidance>(
+    `/organizations/${orgId}/submodels/${submodelId}/guidance`,
+    { method: "POST", body: payload },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -544,203 +908,3 @@ export function formatBytes(bytes: number | null): string {
   );
   return `${(bytes / 1024 ** i).toFixed(1)} ${units[i]}`;
 }
-
-// ---------------------------------------------------------------------------
-// Submodels (admin-controlled AI submodels)
-// ---------------------------------------------------------------------------
-
-export interface Submodel {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  purpose: string | null;
-  status: string;
-  version: number;
-  config: Record<string, unknown>;
-  published_at: string | null;
-  created_at: string;
-  updated_at: string;
-  video_count: number;
-  workflow_count: number;
-}
-
-export interface SubmodelVideo {
-  id: string;
-  submodel_id: string;
-  title: string;
-  filename: string;
-  mime_type: string;
-  size_bytes: number;
-  status: string;
-  error_message: string | null;
-  duration_seconds: number | null;
-  frame_count: number | null;
-  transcript: string | null;
-  analysis: Record<string, unknown>;
-  created_at: string;
-}
-
-export interface SubmodelWorkflow {
-  id: string;
-  submodel_id: string;
-  source_video_id: string | null;
-  name: string;
-  description: string | null;
-  steps: Array<Record<string, unknown>>;
-  version: number;
-  created_at: string;
-}
-
-export interface SubmodelJob {
-  id: string;
-  submodel_id: string;
-  video_id: string | null;
-  kind: string;
-  status: string;
-  progress: number;
-  message: string | null;
-  error: string | null;
-  result: Record<string, unknown>;
-  started_at: string | null;
-  finished_at: string | null;
-  created_at: string;
-}
-
-export interface SubmodelVersion {
-  id: string;
-  submodel_id: string;
-  version: number;
-  manifest: Record<string, unknown>;
-  has_package: boolean;
-  created_at: string;
-}
-
-export interface SubmodelTestResponse {
-  submodel_id: string;
-  answer: string;
-  followed_workflows: string[];
-  model: string;
-}
-
-export const listPublishedSubmodels = (): Promise<Submodel[]> =>
-  request<Submodel[]>("/submodels");
-
-export const listAllSubmodels = (): Promise<Submodel[]> =>
-  request<Submodel[]>("/submodels/admin/all");
-
-export const createSubmodel = (body: {
-  name: string;
-  slug?: string;
-  description?: string;
-  purpose?: string;
-  config?: Record<string, unknown>;
-}): Promise<Submodel> =>
-  request<Submodel>("/submodels/admin", { method: "POST", body: JSON.stringify(body) });
-
-export const updateSubmodel = (
-  id: string,
-  body: Record<string, unknown>,
-): Promise<Submodel> =>
-  request<Submodel>(`/submodels/admin/${id}`, { method: "PATCH", body: JSON.stringify(body) });
-
-export const deleteSubmodel = (id: string): Promise<void> =>
-  request<void>(`/submodels/admin/${id}`, { method: "DELETE" });
-
-export const publishSubmodel = (id: string): Promise<Submodel> =>
-  request<Submodel>(`/submodels/admin/${id}/publish`, { method: "POST" });
-
-export const unpublishSubmodel = (id: string): Promise<Submodel> =>
-  request<Submodel>(`/submodels/admin/${id}/unpublish`, { method: "POST" });
-
-export const listSubmodelVideos = (id: string): Promise<SubmodelVideo[]> =>
-  request<SubmodelVideo[]>(`/submodels/admin/${id}/videos`);
-
-export const uploadSubmodelVideo = async (
-  id: string,
-  file: File,
-  title?: string,
-): Promise<SubmodelVideo> => {
-  const form = new FormData();
-  form.append("file", file);
-  if (title) form.append("title", title);
-  const response = await fetch(`${API_BASE_URL}${API_ROOT}/submodels/admin/${id}/videos`, {
-    method: "POST",
-    body: form,
-    credentials: "include",
-  });
-  if (!response.ok) {
-    throw new ApiRequestError(response.status, "upload_failed", await response.text());
-  }
-  return (await response.json()) as SubmodelVideo;
-};
-
-export const deleteSubmodelVideo = (videoId: string): Promise<void> =>
-  request<void>(`/submodels/admin/videos/${videoId}`, { method: "DELETE" });
-
-export const analyzeSubmodelVideo = (
-  submodelId: string,
-  videoId: string,
-): Promise<SubmodelJob> =>
-  request<SubmodelJob>(`/submodels/admin/${submodelId}/videos/${videoId}/analyze`, {
-    method: "POST",
-  });
-
-export const trainSubmodel = (id: string): Promise<SubmodelJob> =>
-  request<SubmodelJob>(`/submodels/admin/${id}/train`, { method: "POST" });
-
-export const testSubmodel = (
-  id: string,
-  instruction: string,
-): Promise<SubmodelTestResponse> =>
-  request<SubmodelTestResponse>(`/submodels/admin/${id}/test`, {
-    method: "POST",
-    body: JSON.stringify({ instruction }),
-  });
-
-export const listSubmodelJobs = (id: string): Promise<SubmodelJob[]> =>
-  request<SubmodelJob[]>(`/submodels/admin/${id}/jobs`);
-
-export const getSubmodelJob = (jobId: string): Promise<SubmodelJob> =>
-  request<SubmodelJob>(`/submodels/admin/jobs/${jobId}`);
-
-export const listSubmodelWorkflows = (id: string): Promise<SubmodelWorkflow[]> =>
-  request<SubmodelWorkflow[]>(`/submodels/admin/${id}/workflows`);
-
-export const listSubmodelVersions = (id: string): Promise<SubmodelVersion[]> =>
-  request<SubmodelVersion[]>(`/submodels/admin/${id}/versions`);
-
-export const downloadSubmodel = async (id: string): Promise<void> => {
-  const response = await fetch(`${API_BASE_URL}${API_ROOT}/submodels/admin/${id}/download`, {
-    credentials: "include",
-  });
-  if (!response.ok) throw new ApiRequestError(response.status, "download_failed", await response.text());
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "submodel.zip";
-  a.click();
-  URL.revokeObjectURL(url);
-};
-
-export const installSubmodel = async (file: File): Promise<Submodel> => {
-  const form = new FormData();
-  form.append("file", file);
-  const response = await fetch(`${API_BASE_URL}${API_ROOT}/submodels/admin/install`, {
-    method: "POST",
-    body: form,
-    credentials: "include",
-  });
-  if (!response.ok) throw new ApiRequestError(response.status, "install_failed", await response.text());
-  return (await response.json()) as Submodel;
-};
-
-export const useSubmodel = (
-  id: string,
-  instruction: string,
-): Promise<SubmodelTestResponse> =>
-  request<SubmodelTestResponse>(`/submodels/${id}/chat`, {
-    method: "POST",
-    body: JSON.stringify({ instruction }),
-  });

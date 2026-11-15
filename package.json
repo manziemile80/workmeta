@@ -5,13 +5,17 @@
   "description": "WorkMeta AI — Your Business. Your AI. Your Way.",
   "workspaces": [
     "apps/web",
+    "apps/extension",
     "packages/*"
   ],
   "scripts": {
     "dev:web": "npm run dev --workspace @workmeta/web",
     "build:web": "npm run build --workspace @workmeta/web",
     "typecheck:web": "npm run typecheck --workspace @workmeta/web",
-    "preview:web": "npm run preview --workspace @workmeta/web"
+    "preview:web": "npm run preview --workspace @workmeta/web",
+    "build:extension": "npm run build --workspace @workmeta/extension",
+    "typecheck:extension": "npm run typecheck --workspace @workmeta/extension",
+    "test:extension": "npm run test --workspace @workmeta/extension"
   },
   "engines": {
     "node": ">=20"

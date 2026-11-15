@@ -1,0 +1,326 @@
+/**
+ * The side panel's look.
+ *
+ * The colours are the WorkMeta AI brand tokens, so the agent looks like the
+ * rest of the product. The panel is narrow, so the type is small and the
+ * spacing is tight.
+ */
+
+:root {
+  color-scheme: light;
+  --wm-navy-950: #060d1a;
+  --wm-navy-900: #0b1220;
+  --wm-navy-800: #111c30;
+  --wm-navy-700: #1b2a44;
+  --wm-navy-600: #263a5c;
+  --wm-teal-700: #0f766e;
+  --wm-teal-600: #0d9488;
+  --wm-teal-500: #0ea5a4;
+  --wm-teal-400: #2dd4bf;
+  --wm-teal-300: #5eead4;
+  --wm-amber-500: #f59e0b;
+  --wm-amber-400: #fbbf24;
+  --wm-mist-50: #f6f9fc;
+  --wm-mist-100: #eef3f9;
+  --wm-mist-200: #dce5f0;
+  --wm-mist-300: #c3d2e4;
+  --wm-ink-900: #0b1220;
+  --wm-ink-700: #334155;
+  --wm-ink-500: #64748b;
+  --wm-ink-400: #94a3b8;
+  --wm-success-500: #10b981;
+  --wm-danger-500: #ef4444;
+  --wm-radius-sm: 0.5rem;
+  --wm-radius-md: 0.75rem;
+  --wm-radius-lg: 1rem;
+  --wm-font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --wm-shadow-card: 0 1px 2px rgb(6 13 26 / 0.04),
+    0 12px 32px -12px rgb(6 13 26 / 0.14);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-width: 320px;
+  background-color: var(--wm-mist-50);
+  color: var(--wm-ink-900);
+  font-family: var(--wm-font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--wm-teal-500);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ header */
+
+.header {
+  background-color: var(--wm-navy-900);
+  color: var(--wm-mist-50);
+  padding: 0.875rem 1rem;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.header p {
+  margin: 0.125rem 0 0;
+  font-size: 0.75rem;
+  color: var(--wm-mist-300);
+}
+
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--wm-radius-sm);
+  background-color: var(--wm-teal-600);
+  color: var(--wm-navy-950);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+/* -------------------------------------------------------------------- main */
+
+main {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.card {
+  background-color: #ffffff;
+  border: 1px solid var(--wm-mist-200);
+  border-radius: var(--wm-radius-md);
+  box-shadow: var(--wm-shadow-card);
+  padding: 0.875rem;
+}
+
+.card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--wm-ink-500);
+}
+
+.card p {
+  margin: 0 0 0.5rem;
+  color: var(--wm-ink-700);
+}
+
+.card p:last-child {
+  margin-bottom: 0;
+}
+
+/* ------------------------------------------------------------------- forms */
+
+label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--wm-ink-700);
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--wm-mist-300);
+  border-radius: var(--wm-radius-sm);
+  background-color: #ffffff;
+  color: var(--wm-ink-900);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+textarea {
+  min-height: 3.5rem;
+  resize: vertical;
+}
+
+.field {
+  margin-bottom: 0.625rem;
+}
+
+button {
+  padding: 0.5rem 0.875rem;
+  border: 0;
+  border-radius: var(--wm-radius-sm);
+  background-color: var(--wm-teal-600);
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background-color: var(--wm-teal-700);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background-color: var(--wm-mist-200);
+  color: var(--wm-ink-900);
+}
+
+button.secondary:hover:not(:disabled) {
+  background-color: var(--wm-mist-300);
+}
+
+button.danger {
+  background-color: var(--wm-danger-500);
+}
+
+button.link {
+  padding: 0;
+  background: none;
+  color: var(--wm-teal-700);
+  font-weight: 500;
+  text-decoration: underline;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* ---------------------------------------------------------------- messages */
+
+.message {
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--wm-radius-sm);
+  font-size: 0.8125rem;
+}
+
+.message.error {
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.message.info {
+  background-color: var(--wm-mist-100);
+  border: 1px solid var(--wm-mist-200);
+  color: var(--wm-ink-700);
+}
+
+.message.success {
+  background-color: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+
+.message.warn {
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+
+/* ------------------------------------------------------------------ pieces */
+
+.steps {
+  margin: 0.5rem 0 0;
+  padding-left: 1.125rem;
+  color: var(--wm-ink-700);
+}
+
+.steps li {
+  margin-bottom: 0.375rem;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background-color: var(--wm-mist-100);
+  color: var(--wm-ink-700);
+}
+
+.badge.ok {
+  background-color: #ecfdf5;
+  color: #065f46;
+}
+
+.badge.warn {
+  background-color: #fffbeb;
+  color: #92400e;
+}
+
+.chip {
+  display: inline-block;
+  margin: 0 0.25rem 0.25rem 0;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--wm-mist-300);
+  font-size: 0.6875rem;
+  color: var(--wm-ink-700);
+}
+
+.answer {
+  white-space: pre-wrap;
+  color: var(--wm-ink-900);
+}
+
+.muted {
+  color: var(--wm-ink-500);
+  font-size: 0.75rem;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--wm-mist-100);
+}
+
+.list li:last-child {
+  border-bottom: 0;
+}

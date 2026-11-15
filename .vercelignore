@@ -1,0 +1,18 @@
+# Never upload local data, secrets, or build artifacts to Vercel.
+node_modules/
+**/node_modules/
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+.vercel/
+**/.vercel/
+var/
+apps/web/dist/
+packages/*/dist/
+apps/extension/dist/
+.env
+.env.*
+!.env.example
+*.log
+.git/

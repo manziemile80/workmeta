@@ -22,10 +22,10 @@ from app.models.product import Product
 from app.models.session import UserSession
 from app.models.submodel import (
     Submodel,
-    SubmodelJob,
-    SubmodelVersion,
-    SubmodelVideo,
-    SubmodelWorkflow,
+    SubmodelActionPlan,
+    SubmodelMaterial,
+    SubmodelProcedure,
+    SubmodelTest,
 )
 from app.models.subscription_plan import SubscriptionPlan
 from app.models.usage_counter import UsageCounter
@@ -48,12 +48,12 @@ __all__ = [
     "PaymentTransaction",
     "ProcessedWebhookEvent",
     "Product",
-    "Submodel",
-    "SubmodelJob",
-    "SubmodelVersion",
-    "SubmodelVideo",
-    "SubmodelWorkflow",
     "SubscriptionPlan",
+    "Submodel",
+    "SubmodelActionPlan",
+    "SubmodelMaterial",
+    "SubmodelProcedure",
+    "SubmodelTest",
     "UsageCounter",
     "UsageEvent",
     "UserSession",

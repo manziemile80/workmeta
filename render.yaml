@@ -33,6 +33,21 @@ services:
       # Secrets live in the dashboard, never in this file.
       - key: APP_ENV
         value: development
+      # Free tier keeps development (production rejects BILLING_PROVIDER=mock)
+      # but the service is HTTPS-only behind the Vercel proxy, so enable the
+      # HTTPS hardening that development would otherwise leave off.
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: ENABLE_HSTS
+        value: "true"
+      - key: ENABLE_DOCS
+        value: "false"
+      # Enforce the production invariants even in development mode.
+      - key: ENFORCE_PRODUCTION_CHECKS
+        value: "true"
+      # One JSON object per line for log aggregation.
+      - key: LOG_FORMAT
+        value: json
       - key: APP_NAME
         value: WorkMeta AI API
       - key: API_V1_PREFIX
@@ -47,8 +62,9 @@ services:
         value: "12582912"
       - key: DATABASE_URL
         sync: false
-      - key: DATABASE_MIGRATION_URL
-        sync: false
+      # The owner (migration) URL is deliberately NOT deployed: the runtime
+      # connects as the restricted `wm_app` role. Run migrations from a
+      # workstation or CI.
       - key: SESSION_SECRET
         sync: false
       - key: SESSION_TTL_DAYS
@@ -112,6 +128,8 @@ services:
       - key: RATE_LIMIT_ENABLED
         value: "true"
       - key: RATE_LIMIT_LOGIN_PER_MINUTE
+        value: "60"
+      - key: RATE_LIMIT_REGISTER_PER_MINUTE
         value: "60"
       - key: RATE_LIMIT_INVITE_ACCEPT_PER_MINUTE
         value: "60"

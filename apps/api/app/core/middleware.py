@@ -25,6 +25,7 @@ _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 # the body-size cap; authenticated per-tenant quotas live in services/quota.py.
 _SENSITIVE_LIMITS: tuple[tuple[str, str, str], ...] = (
     ("/api/v1/auth/login", "POST", "rate_limit_login_per_minute"),
+    ("/api/v1/auth/register", "POST", "rate_limit_register_per_minute"),
     ("/api/v1/invitations/accept", "POST", "rate_limit_invite_accept_per_minute"),
     ("/api/v1/billing/webhooks", "POST", "rate_limit_webhook_per_minute"),
     ("/messages", "POST", "rate_limit_chat_per_minute"),
@@ -36,6 +37,15 @@ _sensitive_cache_control_prefixes = (
     "/api/v1/platform",
     "/api/v1/billing",
 )
+
+# The paths that take a training recording or an audio instruction. A
+# recording is far larger than a document, so these get their own body limit.
+_MEDIA_UPLOAD_SUFFIX = "/materials/upload"
+
+
+def is_media_upload_path(path: str) -> bool:
+    """Whether this path uploads training media rather than a document."""
+    return path.endswith(_MEDIA_UPLOAD_SUFFIX)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -100,6 +110,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 class BodyLimitMiddleware(BaseHTTPMiddleware):
     """Reject oversized bodies by Content-Length before parsing.
 
+    A training recording is far larger than a document, so the media upload
+    paths get their own, larger limit. Every other route keeps the small
+    cap, so a big body can never be used to push the API around.
+
     Chunked/streamed bodies are not covered here; handlers must also stream
     reads (document upload already reads at most ``max_upload_bytes + 1``).
     """
@@ -116,11 +130,17 @@ class BodyLimitMiddleware(BaseHTTPMiddleware):
                 length = int(declared)
             except ValueError:
                 length = -1
-            if length > settings.max_request_body_bytes:
+            limit = (
+                settings.max_media_upload_bytes
+                if is_media_upload_path(request.url.path)
+                else settings.max_request_body_bytes
+            )
+            if length > limit:
                 logger.warning(
                     "request_body_too_large",
                     path=request.url.path,
                     content_length=length,
+                    limit=limit,
                 )
                 return JSONResponse(
                     status_code=413,
@@ -212,7 +232,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("Cross-Origin-Resource-Policy", "same-site")
         # HSTS is only meaningful (and only valid) over HTTPS; the reverse
         # proxy terminates TLS and should also emit it.
-        if settings.is_production:
+        if settings.hsts_enabled:
             response.headers.setdefault(
                 "Strict-Transport-Security",
                 "max-age=31536000; includeSubDomains",

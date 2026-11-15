@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.errors import AppError
-from app.db.session import get_session, has_pgvector, ping_database
+from app.db.session import get_session, probe_database
 from app.models.enums import IngestionJobStatus
 from app.schemas.health import HealthResponse, ReadyResponse
 
@@ -25,6 +25,12 @@ _STARTED_AT = time.monotonic()
 REQUEST_METRICS: dict[tuple[str, str, str], tuple[int, float]] = {}
 
 
+def _database_configured(settings) -> bool:
+    """True when a real (non-placeholder) database URL is configured."""
+    url = (settings.database_url or "").strip()
+    return bool(url) and "change-me" not in url
+
+
 @router.get("/health", response_model=HealthResponse, summary="Liveness probe")
 async def health() -> HealthResponse:
     """Return OK when the API process is running (does not touch the database)."""
@@ -34,25 +40,37 @@ async def health() -> HealthResponse:
         version=settings.app_version,
         environment=settings.app_env,
         uptime_seconds=round(time.monotonic() - _STARTED_AT, 3),
+        database_configured=_database_configured(settings),
+        docs_enabled=settings.docs_enabled,
     )
 
 
 @router.get("/ready", response_model=ReadyResponse, summary="Readiness probe")
 async def ready(
-    session: AsyncSession = Depends(get_session),  # noqa: B008 - FastAPI idiom
+    probe: tuple[bool, bool] = Depends(probe_database),  # noqa: B008 - FastAPI idiom
 ) -> ReadyResponse:
     """Verify that the API can serve traffic: database reachable, pgvector status."""
     settings = get_settings()
-    try:
-        await ping_database(session)
-        vector_ready = await has_pgvector(session)
-    except Exception as exc:  # noqa: BLE001 - converted into a safe 503 envelope
-        logger.exception("readiness_database_error", error_type=type(exc).__name__)
+    if not _database_configured(settings):
+        # Distinguish "no database configured" from "database unreachable" so
+        # operators get an actionable error. No URL or credential is exposed.
+        logger.error("database_not_configured")
+        raise AppError(
+            "The database connection is not configured on this deployment.",
+            status_code=503,
+            code="database_not_configured",
+        )
+
+    # The probe uses a connection of its own with a short timeout, so the
+    # readiness answer is quick however slow the link to the database is.
+    reachable, vector_ready = probe
+    if not reachable:
+        logger.error("readiness_database_unreachable")
         raise AppError(
             "The database is not reachable.",
             status_code=503,
             code="database_unavailable",
-        ) from exc
+        )
 
     if not vector_ready:
         # Informational in Stage 0; Stage 2 (RAG) will require this to be true.

@@ -14,8 +14,24 @@ from typing import Annotated, Literal
 from pydantic import ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-# apps/api/app/core/config.py -> repository root
-REPO_ROOT = Path(__file__).resolve().parents[4]
+
+def _repo_root() -> Path:
+    """Locate the repository root without depending on a fixed depth.
+
+    A source checkout is ``<repo>/apps/api/app/core/config.py`` (five levels).
+    The container image flattens that to ``/app/app/core/config.py``, which has
+    fewer ancestors and no monorepo layout, so fall back to the directory that
+    contains ``app`` (``/app``).
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "apps" / "api" / "pyproject.toml").is_file():
+            return parent
+    parents = here.parents
+    return parents[2] if len(parents) >= 3 else here.parent
+
+
+REPO_ROOT = _repo_root()
 ENV_FILE = REPO_ROOT / ".env"
 
 
@@ -41,6 +57,20 @@ class Settings(BaseSettings):
     # Host allow-list for TrustedHostMiddleware. "*" allows any host (dev/tests
     # and direct-IP deployments); production should list the public hostnames.
     allowed_hosts: Annotated[list[str], NoDecode] = ["*"]
+    # Explicit HTTPS hardening overrides. ``None`` keeps the environment-derived
+    # default (on only for APP_ENV=production). Free-tier staging runs as
+    # ``development`` because BILLING_PROVIDER=mock is rejected in production,
+    # yet it is still served over HTTPS, so these can be switched on directly.
+    cookie_secure: bool | None = None
+    enable_docs: bool | None = None
+    enable_hsts: bool | None = None
+    # Enforce the production invariants (strong session secret, no placeholder
+    # database URL, explicit host and CORS allow-lists) even when APP_ENV is
+    # ``development``. Useful where the environment name cannot be flipped yet.
+    enforce_production_checks: bool | None = None
+    # Log rendering: ``auto`` (JSON in production, console otherwise), ``json``
+    # or ``console``.
+    log_format: Literal["auto", "json", "console"] = "auto"
     # Total JSON/body size cap. Uploads have their own per-file limit as well.
     max_request_body_bytes: int = 12 * 1024 * 1024
 
@@ -51,6 +81,7 @@ class Settings(BaseSettings):
     # per-process and resets on restart.
     rate_limit_enabled: bool = True
     rate_limit_login_per_minute: int = 1000
+    rate_limit_register_per_minute: int = 1000
     rate_limit_invite_accept_per_minute: int = 1000
     rate_limit_webhook_per_minute: int = 1000
     rate_limit_chat_per_minute: int = 1000
@@ -62,7 +93,17 @@ class Settings(BaseSettings):
     database_migration_url: str = (
         "postgresql+asyncpg://workmeta_owner:change-me@127.0.0.1:5432/workmeta"
     )
+    # A remote database over a slow link needs more than a couple of seconds
+    # to establish a session. The readiness probe keeps its own, short timeout,
+    # so it stays quick whatever these are set to.
+    database_connect_timeout_seconds: int = 15
+    database_command_timeout_seconds: int = 30
+    database_probe_timeout_seconds: int = 5
 
+    # A training recording is much larger than a document, so the media
+    # upload paths get their own limit. The body-limit middleware applies it
+    # to those paths only, so every other route keeps the small cap.
+    max_media_upload_bytes: int = 256 * 1024 * 1024
     # Sessions (used from Stage 1 onward)
     session_secret: str = ""
     session_ttl_days: int = 7
@@ -89,6 +130,9 @@ class Settings(BaseSettings):
         "gpt-4.1",
         "gpt-4o-mini",
     ]
+    # Speech-to-text for audio training instructions. Empty means the
+    # deployment cannot transcribe audio and says so instead of guessing.
+    ai_transcription_model: str = ""
 
     # Estimated provider pricing in USD per million tokens. These are estimates
     # for reporting only; invoices always come from the provider.
@@ -118,7 +162,12 @@ class Settings(BaseSettings):
     embedded_worker_billing_seconds: float = 300.0
 
     # OCR (optional). "none" keeps image/scanned-PDF uploads disabled.
-    ocr_engine: Literal["none", "tesseract"] = "none"
+    # "rapidocr" needs nothing installed on the machine, "tesseract" needs the
+    # Tesseract binary, and "auto" takes whichever is installed.
+    # "auto" picks the best engine this machine has: Tesseract when it is
+    # installed, else the ONNX engine that ships in the "media" pip extra.
+    # "none" turns OCR off, and a recording is then read without its text.
+    ocr_engine: Literal["none", "tesseract", "rapidocr", "auto"] = "auto"
     ocr_language: str = "eng"
     ocr_timeout_seconds: int = 30
     ocr_max_image_pixels: int = 40_000_000
@@ -151,9 +200,18 @@ class Settings(BaseSettings):
     storage_backend: Literal["local", "s3"] = "local"
     storage_dir: str = "./var/storage"
 
-    # Extension signing
+    # Signing of the packages that leave this deployment: the branded agent
+    # (the browser extension) and the submodel packages. One key signs both.
     extension_signing_key_id: str = "dev-1"
     extension_signing_private_key: str = ""
+
+    # Training media. A screen recording is sampled into still frames and read
+    # with OCR; the analysis input is bounded so a long recording cannot blow
+    # the context window or the tenant's token allowance.
+    media_video_frame_interval_seconds: float = 5.0
+    media_video_max_frames: int = 60
+    analysis_max_characters: int = 120_000
+    analysis_max_output_tokens: int = 6_000
 
     # First-run owner
     seed_owner_email: str = ""
@@ -228,6 +286,40 @@ class Settings(BaseSettings):
     def _valid_output_tokens(cls, value: int) -> int:
         if not 1 <= value <= 8192:
             raise ValueError("chat_max_output_tokens must be between 1 and 8192")
+        return value
+
+    @field_validator("analysis_max_output_tokens")
+    @classmethod
+    def _valid_analysis_tokens(cls, value: int) -> int:
+        if not 256 <= value <= 32_000:
+            raise ValueError(
+                "analysis_max_output_tokens must be between 256 and 32000"
+            )
+        return value
+
+    @field_validator("analysis_max_characters")
+    @classmethod
+    def _valid_analysis_characters(cls, value: int) -> int:
+        if not 1_000 <= value <= 1_000_000:
+            raise ValueError(
+                "analysis_max_characters must be between 1000 and 1000000"
+            )
+        return value
+
+    @field_validator("media_video_frame_interval_seconds")
+    @classmethod
+    def _valid_frame_interval(cls, value: float) -> float:
+        if not 0.5 <= value <= 300:
+            raise ValueError(
+                "media_video_frame_interval_seconds must be between 0.5 and 300"
+            )
+        return value
+
+    @field_validator("media_video_max_frames")
+    @classmethod
+    def _valid_frame_count(cls, value: int) -> int:
+        if not 1 <= value <= 600:
+            raise ValueError("media_video_max_frames must be between 1 and 600")
         return value
 
     @field_validator("ai_temperature")
@@ -331,6 +423,7 @@ class Settings(BaseSettings):
     @field_validator(
         "max_request_body_bytes",
         "rate_limit_login_per_minute",
+        "rate_limit_register_per_minute",
         "rate_limit_invite_accept_per_minute",
         "rate_limit_webhook_per_minute",
         "rate_limit_chat_per_minute",
@@ -353,27 +446,55 @@ class Settings(BaseSettings):
         return self.app_env == "production"
 
     @property
+    def production_checks_enforced(self) -> bool:
+        """True when the production invariants must hold, whatever APP_ENV says."""
+        if self.enforce_production_checks is not None:
+            return self.enforce_production_checks
+        return self.is_production
+
+    @property
+    def secure_cookies(self) -> bool:
+        if self.cookie_secure is not None:
+            return self.cookie_secure
+        return self.is_production
+
+    @property
+    def hsts_enabled(self) -> bool:
+        if self.enable_hsts is not None:
+            return self.enable_hsts
+        return self.is_production
+
+    @property
     def docs_enabled(self) -> bool:
+        if self.enable_docs is not None:
+            return self.enable_docs
         return self.app_env != "production"
 
     @model_validator(mode="after")
     def _production_secrets(self) -> Settings:
-        if self.app_env != "production":
+        strict = self.is_production
+        if not (strict or self.production_checks_enforced):
             return self
         if len(self.session_secret.strip()) < 32:
             raise ValueError(
                 "SESSION_SECRET must be at least 32 characters in production"
             )
-        for name, url in (
-            ("DATABASE_URL", self.database_url),
-            ("DATABASE_MIGRATION_URL", self.database_migration_url),
-        ):
-            if "change-me" in url:
-                raise ValueError(f"{name} still contains the placeholder password")
-        if self.billing_provider == "mock":
-            raise ValueError(
-                "BILLING_PROVIDER=mock is not allowed in production"
-            )
+        if "change-me" in self.database_url:
+            raise ValueError("DATABASE_URL still contains the placeholder password")
+        if strict:
+            # The owner URL is mandatory when running in production mode.
+            if "change-me" in self.database_migration_url:
+                raise ValueError(
+                    "DATABASE_MIGRATION_URL still contains the placeholder password"
+                )
+            if self.billing_provider == "mock":
+                raise ValueError(
+                    "BILLING_PROVIDER=mock is not allowed in production"
+                )
+        elif "change-me" in self.database_migration_url:
+            # Enforced-but-not-production mode: an unset migration URL is fine,
+            # the runtime service never executes Alembic.
+            pass
         if not self.allowed_hosts or self.allowed_hosts == ["*"]:
             raise ValueError(
                 "ALLOWED_HOSTS must list the public API hostnames in production"

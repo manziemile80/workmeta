@@ -14,14 +14,30 @@ ENV PATH="/opt/venv/bin:${PATH}"
 WORKDIR /src
 COPY apps/api/pyproject.toml apps/api/README.md ./
 COPY apps/api/app ./app
-RUN pip install .
+# The "media" extra brings the video decoder (PyAV) and the OCR engine, so a
+# deployment can read a training demo without anything installed on the
+# machine. Drop it if the deployment never reads a recording.
+RUN pip install ".[media]"
 
 FROM python:3.12-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:${PATH}" \
-    APP_ENV=production
+    APP_ENV=production \
+    # onnxruntime sizes its thread pools from the machine, which on a small
+    # container means a pool far larger than the CPU it may use - and memory
+    # to match. Two threads is plenty for one frame at a time.
+    OMP_NUM_THREADS=2
+
+# The OCR engine the "media" extra installs runs through OpenCV, which links
+# against the X11/GL shared libraries even when it never opens a window. The
+# slim base image ships none of them, so reading a frame would fail with
+# "libxcb.so.1: cannot open shared object file".
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0 libxcb1 \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system app && useradd --system --gid app --no-create-home app
 
@@ -33,6 +49,10 @@ WORKDIR /app
 COPY apps/api/alembic ./alembic
 COPY apps/api/alembic.ini ./
 COPY apps/api/app ./app
+
+# Ephemeral local storage (STORAGE_DIR=/app/var/storage) must exist and be
+# writable by the non-root runtime user, otherwise uploads fail with EACCES.
+RUN mkdir -p /app/var/storage && chown -R app:app /app/var
 
 USER app
 EXPOSE 8000

@@ -65,7 +65,9 @@ async def _fail_abandoned(session: AsyncSession) -> None:
     )
 
 
-async def _claim_job(session: AsyncSession) -> ClaimedJob | None:
+async def _claim_job(
+    session: AsyncSession, org_id: uuid.UUID | None = None
+) -> ClaimedJob | None:
     await set_rls_context(session, worker=True)
     await _fail_abandoned(session)
     row = (
@@ -87,13 +89,18 @@ async def _claim_job(session: AsyncSession) -> ClaimedJob | None:
                         OR (status = 'running'
                             AND locked_at < now() - interval '15 minutes')
                       )
+                      AND (
+                        CAST(:org_id AS uuid) IS NULL
+                        OR org_id = CAST(:org_id AS uuid)
+                      )
                     ORDER BY available_at ASC
                     FOR UPDATE SKIP LOCKED
                     LIMIT 1
                 )
                 RETURNING id, org_id, document_id, attempts, max_attempts
                 """
-            )
+            ),
+            {"org_id": str(org_id) if org_id else None},
         )
     ).mappings().first()
     if row is None:
@@ -176,14 +183,20 @@ async def process_next_job(
     storage: StorageProvider | None = None,
     ocr: OCREngine | None = None,
     session_factory: async_sessionmaker[AsyncSession] = SessionFactory,
+    org_id: uuid.UUID | None = None,
 ) -> bool:
-    """Claim and process one job. Returns False when the queue is empty."""
+    """Claim and process one job. Returns False when the queue is empty.
+
+    ``org_id`` limits the claim to one tenant. The worker normally runs
+    unscoped; scoping is used by tooling and tests that must not touch another
+    tenant's queue.
+    """
     ai = ai or build_ai_provider()
     storage = storage or build_storage()
     ocr = ocr if ocr is not None else build_ocr_engine()
 
     async with session_factory() as session:
-        claimed = await _claim_job(session)
+        claimed = await _claim_job(session, org_id=org_id)
         await session.commit()
 
     if claimed is None:

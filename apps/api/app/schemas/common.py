@@ -10,6 +10,25 @@ Password = Annotated[str, Field(min_length=12, max_length=128)]
 LoginPassword = Annotated[str, Field(min_length=1, max_length=128)]
 CountryCode = Annotated[str, Field(min_length=2, max_length=2)]
 
+# Self-service registration accepts a slightly weaker secret than the
+# invitation flow (``Password``): at least 10 characters containing a letter
+# and a number. The value is the single source of truth for the API, the web
+# client and the tests.
+REGISTER_PASSWORD_MIN_LENGTH = 10
+
+
+def validate_register_password(value: str) -> str:
+    """Enforce the registration password policy."""
+    if len(value) < REGISTER_PASSWORD_MIN_LENGTH:
+        raise ValueError(
+            f"Password must be at least {REGISTER_PASSWORD_MIN_LENGTH} characters"
+        )
+    if not any(char.isalpha() for char in value):
+        raise ValueError("Password must contain at least one letter")
+    if not any(char.isdigit() for char in value):
+        raise ValueError("Password must contain at least one number")
+    return value
+
 
 def _validate_password(value: str) -> str:
     if not value.strip():

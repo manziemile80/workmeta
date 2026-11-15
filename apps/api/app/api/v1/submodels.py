@@ -1,625 +1,1360 @@
-"""Admin-controlled AI submodel lifecycle.
+"""WorkMeta AI Submodels: train a model on your own work, then take it with you.
 
-All mutating/admin endpoints require a platform administrator. Clients may
-only list and read published submodels (and run a chat against one).
+Every route is scoped to one organization. A client's training material,
+workflows, tests and action plans stay in that client's own tenant, and a
+submodel can only be exported by the client that trained it.
+
+The lifecycle is: **create → train → test → export**, and on another
+machine **install → use**. An installed submodel carries its workflows, so it
+works there on its own.
 """
 
 from __future__ import annotations
 
+import hashlib
 import uuid
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import Response
+import structlog
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    Request,
+    UploadFile,
+)
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_auth_context, require_platform_admin
+from app.api.deps import OrgContext, require_org_admin, require_org_member
+from app.core.config import get_settings
 from app.core.errors import AppError
-from app.db.session import get_session
-from app.models.submodel import (
-    SubmodelJob,
+from app.db.rls import set_rls_context
+from app.db.session import SessionFactory, get_session
+from app.models.enums import (
+    SubmodelActionStatus,
+    SubmodelMaterialKind,
     SubmodelStatus,
-    SubmodelVersion,
-    SubmodelVideo,
-    SubmodelWorkflow,
+)
+from app.models.submodel import (
+    Submodel,
+    SubmodelActionPlan,
+    SubmodelMaterial,
+    SubmodelProcedure,
+    SubmodelTest,
 )
 from app.schemas.submodel import (
+    SubmodelActionComplete,
+    SubmodelActionConfirm,
+    SubmodelActionDecision,
+    SubmodelActionPlanCreate,
+    SubmodelActionPlanRead,
     SubmodelCreate,
-    SubmodelJobRead,
+    SubmodelGuidanceRequest,
+    SubmodelGuidanceResponse,
+    SubmodelMaterialCreate,
+    SubmodelMaterialRead,
+    SubmodelPackageInfo,
     SubmodelRead,
-    SubmodelTestRequest,
-    SubmodelTestResponse,
+    SubmodelTestCreate,
+    SubmodelTestRead,
+    SubmodelTrainingResult,
     SubmodelUpdate,
-    SubmodelVersionRead,
-    SubmodelVideoRead,
     SubmodelWorkflowRead,
+    SubmodelWorkflowUpdate,
 )
-from app.services import audit
-from app.services.ai import build_ai_provider
-from app.services.storage import build_storage, get_storage
+from app.services import audit, quota
+from app.services.ai import AIProvider, get_ai_provider
+from app.services.media import (
+    AUDIO_MIME_TYPES,
+    VIDEO_MIME_TYPES,
+    MediaCapabilityUnavailable,
+    build_audio_transcriber,
+)
+from app.services.storage import StorageProvider, get_storage
+from app.services.submodel_packaging import (
+    build_package_document,
+    decode_package,
+    install_submodel,
+    verify_package_document,
+)
+from app.services.submodel_runtime import answer_with_submodel, run_submodel_test
+from app.services.submodel_training import train_submodel
 from app.services.submodels import (
-    analyze_video,
-    build_download_package,
-    counts,
-    create_job,
+    approved_procedures,
+    build_package,
     create_submodel,
-    delete_submodel,
-    delete_video,
-    get_job,
     get_submodel,
-    get_video,
-    install_package,
     list_submodels,
-    publish_submodel,
-    test_submodel,
-    train_submodel,
-    unpublish_submodel,
-    update_submodel,
-    upload_video,
+    record_action,
+    submodel_counts,
+)
+from app.services.video_analysis import read_recording, render_timeline
+
+router = APIRouter(
+    prefix="/organizations/{org_id}/submodels", tags=["submodels"]
 )
 
-router = APIRouter(prefix="/submodels", tags=["submodels"])
+logger = structlog.get_logger(__name__)
 
 
-def _to_read(sm, vcount: int, wcount: int) -> SubmodelRead:
-    return SubmodelRead(
-        id=sm.id,
-        name=sm.name,
-        slug=sm.slug,
-        description=sm.description,
-        purpose=sm.purpose,
-        status=sm.status,
-        version=sm.version,
-        config=sm.config or {},
-        published_at=sm.published_at,
-        created_at=sm.created_at,
-        updated_at=sm.updated_at,
-        video_count=vcount,
-        workflow_count=wcount,
-    )
+async def _owned_submodel(
+    session: AsyncSession, *, org_id: uuid.UUID, submodel_id: uuid.UUID
+) -> Submodel:
+    return await get_submodel(session, org_id=org_id, submodel_id=submodel_id)
 
 
-# ---------------------------------------------------------------------------
-# Client (any authenticated user)
-# ---------------------------------------------------------------------------
-
-
-@router.get("", response_model=list[SubmodelRead], summary="List published submodels")
-async def list_published(
-    auth=Depends(get_auth_context),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> list[SubmodelRead]:
-    items = await list_submodels(session, published_only=True)
-    out = []
-    for sm in items:
-        v, w = await counts(session, sm.id)
-        out.append(_to_read(sm, v, w))
-    return out
-
-
-@router.get("/{submodel_id}", response_model=SubmodelRead, summary="Read a published submodel")
-async def read_published(
+async def _owned_material(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID,
     submodel_id: uuid.UUID,
-    auth=Depends(get_auth_context),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
+    material_id: uuid.UUID,
+) -> SubmodelMaterial:
+    material = await session.scalar(
+        select(SubmodelMaterial).where(
+            SubmodelMaterial.id == material_id,
+            SubmodelMaterial.org_id == org_id,
+            SubmodelMaterial.submodel_id == submodel_id,
+        )
+    )
+    if material is None:
+        raise AppError(
+            "Training material not found.",
+            status_code=404,
+            code="material_not_found",
+        )
+    return material
+
+
+async def _submodel_read(
+    session: AsyncSession, submodel: Submodel
 ) -> SubmodelRead:
-    sm = await get_submodel(session, submodel_id)
-    if sm.status != SubmodelStatus.published:
-        raise AppError("Submodel not found.", status_code=404, code="not_found")
-    v, w = await counts(session, sm.id)
-    return _to_read(sm, v, w)
-
-
-@router.post(
-    "/{submodel_id}/chat",
-    response_model=SubmodelTestResponse,
-    summary="Use a published submodel",
-)
-async def use_submodel(
-    submodel_id: uuid.UUID,
-    payload: SubmodelTestRequest,
-    auth=Depends(get_auth_context),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> SubmodelTestResponse:
-    sm = await get_submodel(session, submodel_id)
-    if sm.status != SubmodelStatus.published:
-        raise AppError("Submodel not found.", status_code=404, code="not_found")
-    ai = build_ai_provider()
-    answer, followed, model = await test_submodel(
-        session, submodel=sm, instruction=payload.instruction, ai=ai
-    )
-    return SubmodelTestResponse(
-        submodel_id=sm.id, answer=answer, followed_workflows=followed, model=model
-    )
+    read = SubmodelRead.model_validate(submodel)
+    for key, value in (
+        await submodel_counts(
+            session, org_id=submodel.org_id, submodel_id=submodel.id
+        )
+    ).items():
+        setattr(read, key, value)
+    return read
 
 
 # ---------------------------------------------------------------------------
-# Admin
+# Managing submodels
 # ---------------------------------------------------------------------------
 
 
-@router.get(
-    "/admin/all",
-    response_model=list[SubmodelRead],
-    summary="List all submodels (admin)",
-)
-async def admin_list_all(
-    auth=Depends(require_platform_admin),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> list[SubmodelRead]:
-    items = await list_submodels(session, published_only=False)
-    out = []
-    for sm in items:
-        v, w = await counts(session, sm.id)
-        out.append(_to_read(sm, v, w))
-    return out
-
-
 @router.post(
-    "/admin",
+    "",
     response_model=SubmodelRead,
     status_code=201,
-    summary="Create a submodel (admin)",
+    summary="Create a submodel for a task",
 )
-async def admin_create(
+async def create(
     payload: SubmodelCreate,
     request: Request,
-    auth=Depends(require_platform_admin),  # noqa: B008
+    context: OrgContext = Depends(require_org_admin),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> SubmodelRead:
-    sm = await create_submodel(session, payload=payload, user=auth.user)
-    v, w = await counts(session, sm.id)
+    """Start a submodel for one task the client's staff repeat."""
+    await quota.guard_submodel_create(session, context.org_id)
+    submodel = await create_submodel(
+        session,
+        org_id=context.org_id,
+        name=payload.name,
+        task=payload.task,
+        system_code=payload.system_code,
+        system_name=payload.system_name,
+        system_version=payload.system_version,
+        description=payload.description,
+        target_kind=payload.target_kind,
+        permissions=payload.permissions,
+        capabilities=payload.capabilities,
+        created_by=context.user.id,
+    )
     await audit.record(
         session,
         action="submodel.created",
-        actor_user_id=auth.user.id,
-        actor_role="platform_owner",
+        org_id=context.org_id,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
         resource_type="submodel",
-        resource_id=str(sm.id),
-        metadata={"name": sm.name, "slug": sm.slug},
+        resource_id=str(submodel.id),
+        metadata={"task": submodel.task, "system": submodel.system_code},
         request=request,
     )
+    # The counts are read before the commit: the tenant context is
+    # transaction-local, so a read after it would see no rows.
+    read = await _submodel_read(session, submodel)
     await session.commit()
-    return _to_read(sm, v, w)
+    return read
+
+
+@router.get("", response_model=list[SubmodelRead], summary="List submodels")
+async def index(
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> list[SubmodelRead]:
+    """Every submodel in this organization."""
+    rows = await list_submodels(session, org_id=context.org_id)
+    return [await _submodel_read(session, row) for row in rows]
+
+
+@router.get("/limits", response_model=dict, summary="What the plan allows")
+async def submodel_limits(
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict:
+    """The plan limits for trained submodels.
+
+    It also says whether this deployment can sign a package, so the console
+    can tell the client that an export would be unsigned.
+    """
+    from app.services import billing
+
+    settings = get_settings()
+    subscription = await billing.ensure_subscription(session, context.org_id)
+    return {
+        "plan_code": subscription.plan.code,
+        "max_submodels": subscription.plan.max_submodels,
+        "video_frames": settings.media_video_max_frames,
+        "analysis_max_characters": settings.analysis_max_characters,
+        "signing_configured": bool(settings.extension_signing_private_key),
+    }
+
+
+@router.get("/{submodel_id}", response_model=SubmodelRead, summary="Read a submodel")
+async def show(
+    submodel_id: uuid.UUID,
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> SubmodelRead:
+    """One submodel."""
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    return await _submodel_read(session, submodel)
 
 
 @router.patch(
-    "/admin/{submodel_id}",
+    "/{submodel_id}",
     response_model=SubmodelRead,
-    summary="Update a submodel (admin)",
+    summary="Change a submodel",
 )
-async def admin_update(
+async def update(
     submodel_id: uuid.UUID,
     payload: SubmodelUpdate,
     request: Request,
-    auth=Depends(require_platform_admin),  # noqa: B008
+    context: OrgContext = Depends(require_org_admin),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> SubmodelRead:
-    sm = await get_submodel(session, submodel_id)
-    sm = await update_submodel(session, submodel=sm, payload=payload)
-    v, w = await counts(session, sm.id)
+    """Rename a submodel or change what it is allowed to do."""
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    changes = payload.model_dump(exclude_unset=True)
+    for key, value in changes.items():
+        if value is None:
+            continue
+        if key == "permissions":
+            from app.services.submodels import normalise_permissions
+
+            value = normalise_permissions(value)
+        setattr(submodel, key, value)
     await audit.record(
         session,
         action="submodel.updated",
-        actor_user_id=auth.user.id,
-        actor_role="platform_owner",
+        org_id=context.org_id,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
         resource_type="submodel",
-        resource_id=str(sm.id),
+        resource_id=str(submodel.id),
+        metadata={"fields": sorted(changes)},
         request=request,
     )
+    # The change is written before the refresh: a refresh reloads the stored
+    # row, so an unflushed change would be lost.
+    await session.flush()
+    await session.refresh(submodel)
     await session.commit()
-    return _to_read(sm, v, w)
+    return await _submodel_read(session, submodel)
 
 
 @router.delete(
-    "/admin/{submodel_id}",
-    status_code=204,
-    summary="Delete a submodel (admin)",
-)
-async def admin_delete(
-    submodel_id: uuid.UUID,
-    request: Request,
-    auth=Depends(require_platform_admin),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> None:
-    sm = await get_submodel(session, submodel_id)
-    storage = build_storage()
-    await delete_submodel(session, submodel=sm, storage=storage)
-    await audit.record(
-        session,
-        action="submodel.deleted",
-        actor_user_id=auth.user.id,
-        actor_role="platform_owner",
-        resource_type="submodel",
-        resource_id=str(submodel_id),
-        request=request,
-    )
-    await session.commit()
-
-
-@router.post(
-    "/admin/{submodel_id}/publish",
+    "/{submodel_id}",
     response_model=SubmodelRead,
-    summary="Publish a submodel (admin)",
+    summary="Retire a submodel",
 )
-async def admin_publish(
+async def retire(
     submodel_id: uuid.UUID,
     request: Request,
-    auth=Depends(require_platform_admin),  # noqa: B008
+    context: OrgContext = Depends(require_org_admin),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> SubmodelRead:
-    sm = await get_submodel(session, submodel_id)
-    sm = await publish_submodel(session, submodel=sm, user=auth.user)
-    v, w = await counts(session, sm.id)
+    """Retire a submodel.
+
+    The row is kept: it is part of the audit trail and of what the client
+    published. A retired submodel is not listed as usable.
+    """
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    submodel.status = SubmodelStatus.retired.value
     await audit.record(
         session,
-        action="submodel.published",
-        actor_user_id=auth.user.id,
-        actor_role="platform_owner",
+        action="submodel.retired",
+        org_id=context.org_id,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
         resource_type="submodel",
-        resource_id=str(sm.id),
+        resource_id=str(submodel.id),
         request=request,
     )
+    # The change is written before the refresh: a refresh reloads the stored
+    # row, so an unflushed change would be lost.
+    await session.flush()
+    await session.refresh(submodel)
     await session.commit()
-    return _to_read(sm, v, w)
-
-
-@router.post(
-    "/admin/{submodel_id}/unpublish",
-    response_model=SubmodelRead,
-    summary="Unpublish a submodel (admin)",
-)
-async def admin_unpublish(
-    submodel_id: uuid.UUID,
-    request: Request,
-    auth=Depends(require_platform_admin),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> SubmodelRead:
-    sm = await get_submodel(session, submodel_id)
-    sm = await unpublish_submodel(session, submodel=sm)
-    v, w = await counts(session, sm.id)
-    await audit.record(
-        session,
-        action="submodel.unpublished",
-        actor_user_id=auth.user.id,
-        actor_role="platform_owner",
-        resource_type="submodel",
-        resource_id=str(sm.id),
-        request=request,
-    )
-    await session.commit()
-    return _to_read(sm, v, w)
+    return await _submodel_read(session, submodel)
 
 
 # ---------------------------------------------------------------------------
-# Videos (admin)
+# Training material
 # ---------------------------------------------------------------------------
 
 
+@router.get(
+    "/{submodel_id}/materials",
+    response_model=list[SubmodelMaterialRead],
+    summary="List the training material",
+)
+async def list_materials(
+    submodel_id: uuid.UUID,
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> list[SubmodelMaterialRead]:
+    """Everything the submodel learns from."""
+    await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    rows = await session.scalars(
+        select(SubmodelMaterial)
+        .where(
+            SubmodelMaterial.org_id == context.org_id,
+            SubmodelMaterial.submodel_id == submodel_id,
+        )
+        .order_by(SubmodelMaterial.created_at.asc())
+    )
+    return [SubmodelMaterialRead.model_validate(row) for row in rows]
+
+
+@router.get(
+    "/{submodel_id}/materials/{material_id}",
+    response_model=SubmodelMaterialRead,
+    summary="One piece of training material",
+)
+async def get_material(
+    submodel_id: uuid.UUID,
+    material_id: uuid.UUID,
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> SubmodelMaterialRead:
+    """Follow a recording while it is read (status ``extracting``)."""
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    material = await _owned_material(
+        session,
+        org_id=context.org_id,
+        submodel_id=submodel.id,
+        material_id=material_id,
+    )
+    return SubmodelMaterialRead.model_validate(material)
+
+
 @router.post(
-    "/admin/{submodel_id}/videos",
-    response_model=SubmodelVideoRead,
+    "/{submodel_id}/materials/notes",
+    response_model=SubmodelMaterialRead,
     status_code=201,
-    summary="Upload a training video (admin)",
+    summary="Add a written procedure",
 )
-async def admin_upload_video(
+async def add_note(
     submodel_id: uuid.UUID,
-    file: UploadFile = File(...),  # noqa: B008
-    title: str | None = Form(default=None),  # noqa: B008
-    auth=Depends(require_platform_admin),  # noqa: B008
+    payload: SubmodelMaterialCreate,
+    request: Request,
+    context: OrgContext = Depends(require_org_admin),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
-    storage=Depends(get_storage),  # noqa: B008
-) -> SubmodelVideo:
-    sm = await get_submodel(session, submodel_id)
-    data = await file.read()
-    if not data:
-        raise AppError("Empty file.", status_code=400, code="empty_file")
-    if len(data) > 100 * 1024 * 1024:
-        raise AppError("Video too large (max 100 MB).", status_code=413, code="file_too_large")
-    video = await upload_video(
+) -> SubmodelMaterialRead:
+    """The client's own written steps."""
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    material = SubmodelMaterial(
+        org_id=context.org_id,
+        submodel_id=submodel.id,
+        kind=SubmodelMaterialKind.note.value,
+        title=payload.title.strip(),
+        note_text=payload.text.strip(),
+        size_bytes=len(payload.text.strip().encode("utf-8")),
+        status="ready",
+        created_by=context.user.id,
+    )
+    session.add(material)
+    await session.flush()
+    await audit.record(
         session,
-        submodel=sm,
-        title=title or file.filename or "video",
-        filename=file.filename or "video.mp4",
-        mime_type=file.content_type or "video/mp4",
-        data=data,
-        user=auth.user,
+        action="submodel.material_added",
+        org_id=context.org_id,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
+        resource_type="submodel",
+        resource_id=str(submodel.id),
+        metadata={"material_id": str(material.id), "kind": material.kind},
+        request=request,
+    )
+    await session.refresh(material)
+    await session.commit()
+    return SubmodelMaterialRead.model_validate(material)
+
+
+@router.post(
+    "/{submodel_id}/materials/upload",
+    response_model=SubmodelMaterialRead,
+    status_code=201,
+    summary="Upload a training video or an audio instruction",
+)
+async def upload_material(
+    submodel_id: uuid.UUID,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),  # noqa: B008 - FastAPI idiom
+    title: str | None = Form(default=None),  # noqa: B008 - FastAPI idiom
+    context: OrgContext = Depends(require_org_admin),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+    storage: StorageProvider = Depends(get_storage),  # noqa: B008
+) -> SubmodelMaterialRead:
+    """Upload a training video or an audio instruction.
+
+    The recording is **read right after the upload**: the frames are decoded,
+    the text on them is read, and the material becomes the timeline of screens
+    and changes the training reads. The read runs in the background — the
+    response is the material still being read, and the list of materials
+    follows it until it says ``ready``.
+
+    A deployment that cannot read the recording says so on the material and
+    the client can try again; the file is never lost.
+    """
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    mime_type = (file.content_type or "").split(";")[0].strip().lower()
+    if mime_type not in VIDEO_MIME_TYPES and mime_type not in AUDIO_MIME_TYPES:
+        raise AppError(
+            "Upload a training video or an audio instruction. Manuals and "
+            "screenshots are uploaded as documents.",
+            status_code=422,
+            code="invalid_material_type",
+        )
+    limit = get_settings().max_media_upload_bytes
+    raw = await file.read(limit + 1)
+    if not raw:
+        raise AppError(
+            "The uploaded file is empty.", status_code=422, code="material_empty"
+        )
+    if len(raw) > limit:
+        raise AppError(
+            f"That recording is larger than the {limit // (1024 * 1024)} MB limit.",
+            status_code=413,
+            code="material_too_large",
+        )
+
+    key = _material_key(context.org_id, submodel.id)
+    await storage.save(key, raw)
+    material = SubmodelMaterial(
+        org_id=context.org_id,
+        submodel_id=submodel.id,
+        kind=(
+            SubmodelMaterialKind.video.value
+            if mime_type in VIDEO_MIME_TYPES
+            else SubmodelMaterialKind.audio.value
+        ),
+        title=(title or file.filename or "Recording").strip()[:200],
+        filename=(file.filename or "")[:255] or None,
+        mime_type=mime_type,
+        size_bytes=len(raw),
+        storage_key=key,
+        sha256=hashlib.sha256(raw).hexdigest(),
+        status="extracting",
+        created_by=context.user.id,
+    )
+    session.add(material)
+    await session.flush()
+    await audit.record(
+        session,
+        action="submodel.material_uploaded",
+        org_id=context.org_id,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
+        resource_type="submodel",
+        resource_id=str(submodel.id),
+        metadata={"material_id": str(material.id), "kind": material.kind},
+        request=request,
+    )
+
+    # The demo is read right after the upload, in the background: the read
+    # decodes frames and runs OCR on each, which can take a while on a slow
+    # machine, and no request should wait on that. The response is the
+    # material still being read; the client follows it until it is ready. A
+    # failure is reported on the material, not as a lost upload.
+    await session.commit()
+    background_tasks.add_task(
+        read_material_in_background,
+        material_id=material.id,
+        org_id=context.org_id,
         storage=storage,
     )
-    return video
+    return SubmodelMaterialRead.model_validate(material)
 
 
-@router.get(
-    "/admin/{submodel_id}/videos",
-    response_model=list[SubmodelVideoRead],
-    summary="List training videos (admin)",
-)
-async def admin_list_videos(
-    submodel_id: uuid.UUID,
-    auth=Depends(require_platform_admin),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> list[SubmodelVideo]:
-    await get_submodel(session, submodel_id)
-    rows = (
-        await session.scalars(
-            select(SubmodelVideo)
-            .where(SubmodelVideo.submodel_id == submodel_id)
-            .order_by(SubmodelVideo.created_at.desc())
+def _material_key(org_id: uuid.UUID, submodel_id: uuid.UUID) -> str:
+    return f"{org_id}/submodels/{submodel_id}/{uuid.uuid4().hex}"
+
+
+async def _read_into_timeline(
+    session: AsyncSession,
+    storage: StorageProvider,
+    material: SubmodelMaterial,
+) -> tuple[str, int]:
+    """Read a recording into the screens it shows and what changed between them.
+
+    Returns the text and how many screens it found. A deployment that cannot
+    read the recording raises ``MediaCapabilityUnavailable``, which the
+    caller turns into a material that says exactly what is missing.
+    """
+    if not material.storage_key:
+        raise MediaCapabilityUnavailable("This material has no stored file.")
+    raw = await storage.read(material.storage_key)
+    if material.kind == SubmodelMaterialKind.video.value:
+        analysis = await read_recording(raw, mime_type=material.mime_type or "")
+        return render_timeline(analysis), len(analysis.states)
+    transcriber = build_audio_transcriber()
+    if transcriber is None:
+        raise MediaCapabilityUnavailable(
+            "Transcribing audio needs a transcription model on this "
+            "deployment. Upload the written instructions instead."
         )
-    ).all()
-    return list(rows)
+    text = await transcriber.transcribe(
+        raw, filename=material.filename or "instruction.mp3"
+    )
+    return text, len(text.split())
+
+
+async def read_material_in_background(
+    *,
+    material_id: uuid.UUID,
+    org_id: uuid.UUID,
+    storage: StorageProvider,
+) -> None:
+    """Read an uploaded recording after the response has been sent.
+
+    The read decodes frames and runs OCR on each, which is slow on a small
+    machine, so it runs outside the request. This owns its database session:
+    the request's session is closed by the time a background task runs. The
+    storage provider travels with the task because it is plain configuration,
+    not tied to the request. The result — the timeline, or the reason the read
+    failed — is written on the material either way.
+    """
+    session = SessionFactory()
+    try:
+        await set_rls_context(session, org_id=org_id)
+        material = await session.get(SubmodelMaterial, material_id)
+        if material is None or material.status == "archived":
+            return
+        try:
+            text, units = await _read_into_timeline(session, storage, material)
+        except MediaCapabilityUnavailable as exc:
+            material.status = "failed"
+            material.error_message = str(exc)[:1000]
+        except Exception as exc:  # noqa: BLE001 - the material says what broke
+            material.status = "failed"
+            material.error_message = (
+                f"The recording could not be read: {exc}"
+            )[:1000]
+            logger.warning(
+                "material_read_failed",
+                material_id=str(material_id),
+                error=str(exc)[:400],
+            )
+        else:
+            material.extracted_text = text
+            material.extracted_units = units
+            material.status = "ready"
+        await audit.record(
+            session,
+            action="submodel.material_read",
+            org_id=org_id,
+            resource_type="submodel",
+            resource_id=str(material.submodel_id),
+            metadata={
+                "material_id": str(material_id),
+                "units": material.extracted_units or 0,
+                "status": material.status,
+            },
+        )
+        await session.commit()
+    except Exception:
+        logger.error("material_read_crashed", material_id=str(material_id))
+        await session.rollback()
+    finally:
+        await session.close()
+
+
+@router.post(
+    "/{submodel_id}/materials/{material_id}/read",
+    response_model=SubmodelMaterialRead,
+    status_code=202,
+    summary="Read a recording into a sequence of screens",
+)
+async def read_material(
+    submodel_id: uuid.UUID,
+    material_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    context: OrgContext = Depends(require_org_admin),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+    storage: StorageProvider = Depends(get_storage),  # noqa: B008
+) -> SubmodelMaterialRead:
+    """Turn a recording into the screens it shows and what changed between them.
+
+    This is the step that makes a recording teachable: the material becomes
+    a **timeline** of screens and changes, not a pile of pictures. The read
+    runs in the background; the answer is the material marked ``extracting``,
+    and the client follows it until it is ready.
+    """
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    material = await _owned_material(
+        session,
+        org_id=context.org_id,
+        submodel_id=submodel.id,
+        material_id=material_id,
+    )
+    if material.kind == SubmodelMaterialKind.note.value:
+        raise AppError(
+            "Written procedures do not need to be read.",
+            status_code=409,
+            code="material_not_readable",
+        )
+    if not material.storage_key:
+        raise AppError(
+            "This material has no stored file.",
+            status_code=409,
+            code="material_not_readable",
+        )
+
+    material.status = "extracting"
+    material.error_message = None
+    await session.commit()
+    background_tasks.add_task(
+        read_material_in_background,
+        material_id=material.id,
+        org_id=context.org_id,
+        storage=storage,
+    )
+    return SubmodelMaterialRead.model_validate(material)
 
 
 @router.delete(
-    "/admin/videos/{video_id}",
-    status_code=204,
-    summary="Delete a training video (admin)",
+    "/{submodel_id}/materials/{material_id}",
+    response_model=SubmodelMaterialRead,
+    summary="Archive a training material",
 )
-async def admin_delete_video(
-    video_id: uuid.UUID,
-    auth=Depends(require_platform_admin),  # noqa: B008
+async def archive_material(
+    submodel_id: uuid.UUID,
+    material_id: uuid.UUID,
+    request: Request,
+    context: OrgContext = Depends(require_org_admin),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
-    storage=Depends(get_storage),  # noqa: B008
-) -> None:
-    video = await get_video(session, video_id)
-    await delete_video(session, video=video, storage=storage)
+) -> SubmodelMaterialRead:
+    """Archive a material. The row is kept for the audit trail."""
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    material = await _owned_material(
+        session,
+        org_id=context.org_id,
+        submodel_id=submodel.id,
+        material_id=material_id,
+    )
+    material.status = "archived"
+    await audit.record(
+        session,
+        action="submodel.material_archived",
+        org_id=context.org_id,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
+        resource_type="submodel",
+        resource_id=str(submodel.id),
+        metadata={"material_id": str(material.id)},
+        request=request,
+    )
+    # The change is written before the refresh: a refresh reloads the stored
+    # row, so an unflushed change would be lost.
+    await session.flush()
+    await session.refresh(material)
+    await session.commit()
+    return SubmodelMaterialRead.model_validate(material)
+
+
+# ---------------------------------------------------------------------------
+# Training, workflows and tests
+# ---------------------------------------------------------------------------
 
 
 @router.post(
-    "/admin/{submodel_id}/videos/{video_id}/analyze",
-    response_model=SubmodelJobRead,
-    status_code=202,
-    summary="Analyze a training video (admin)",
+    "/{submodel_id}/train",
+    response_model=SubmodelTrainingResult,
+    summary="Train the submodel on its material",
 )
-async def admin_analyze_video(
+async def train(
     submodel_id: uuid.UUID,
-    video_id: uuid.UUID,
     request: Request,
-    auth=Depends(require_platform_admin),  # noqa: B008
+    context: OrgContext = Depends(require_org_admin),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> SubmodelJob:
-    sm = await get_submodel(session, submodel_id)
-    video = await get_video(session, video_id)
-    if video.submodel_id != sm.id:
-        raise AppError("Video not found.", status_code=404, code="not_found")
-    storage = build_storage()
-    ai = build_ai_provider()
-    job = await analyze_video(
-        session, submodel=sm, video=video, user=auth.user, storage=storage, ai=ai
+    ai: AIProvider = Depends(get_ai_provider),  # noqa: B008
+) -> SubmodelTrainingResult:
+    """Learn the workflows the material shows.
+
+    The result is a draft: a human approves each workflow before the submodel
+    may use it.
+    """
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
     )
-    await audit.record(
-        session,
-        action="submodel.video_analyzed",
-        actor_user_id=auth.user.id,
-        actor_role="platform_owner",
-        resource_type="submodel_video",
-        resource_id=str(video.id),
-        request=request,
+    reading = await session.scalar(
+        select(SubmodelMaterial.id).where(
+            SubmodelMaterial.org_id == context.org_id,
+            SubmodelMaterial.submodel_id == submodel_id,
+            SubmodelMaterial.status.in_(("stored", "extracting")),
+        )
+    )
+    if reading is not None:
+        raise AppError(
+            "A recording is still being read. Give it a few seconds, then "
+            "train again.",
+            status_code=409,
+            code="submodel_material_reading",
+        )
+    submodel.status = SubmodelStatus.training.value
+    await session.flush()
+    try:
+        workflows, materials, characters, summary = await train_submodel(
+            session,
+            org_id=context.org_id,
+            submodel=submodel,
+            ai=ai,
+            actor_user_id=context.user.id,
+            actor_role=context.role,
+        )
+    except AppError:
+        submodel.status = SubmodelStatus.draft.value
+        await session.commit()
+        raise
+    # The workflows are read before the commit: the tenant context is
+    # transaction-local, so a read after it would see no rows.
+    if workflows:
+        message = (
+            f"The AI read {materials} piece(s) of material and wrote "
+            f"{len(workflows)} workflow(s). Approve the ones that are right."
+        )
+        if summary["videos"]:
+            message = (
+                f"The AI read {summary['videos']} video demo(s) "
+                f"({summary['screens']} screens) and wrote {len(workflows)} "
+                "workflow(s). Approve the ones that are right."
+            )
+    else:
+        # Nothing was found. That is the honest failure mode of a deployment
+        # without a real model, and it is said plainly rather than reported
+        # like a normal result.
+        if summary["videos"]:
+            message = (
+                f"No workflows were found in {summary['videos']} video "
+                "demo(s). Check that the recording shows the task and that "
+                "the screens are readable, then train again — a submodel is "
+                "never used with an empty workflow set."
+            )
+        else:
+            message = (
+                "No workflows were found in the training material. Upload a "
+                "video demo of the task, or the written steps, and train "
+                "again — a submodel is never used with an empty workflow set."
+            )
+    result = SubmodelTrainingResult(
+        submodel_id=submodel.id,
+        training_status=submodel.training_status,
+        workflows=[SubmodelWorkflowRead.model_validate(item) for item in workflows],
+        analysed_materials=materials,
+        analysed_characters=characters,
+        videos=summary["videos"],
+        screens=summary["screens"],
+        notes=summary["notes"],
+        message=message,
     )
     await session.commit()
-    return job
-
-
-# ---------------------------------------------------------------------------
-# Workflows (admin read)
-# ---------------------------------------------------------------------------
+    return result
 
 
 @router.get(
-    "/admin/{submodel_id}/workflows",
+    "/{submodel_id}/workflows",
     response_model=list[SubmodelWorkflowRead],
-    summary="List workflows (admin)",
+    summary="List the extracted workflows",
 )
-async def admin_list_workflows(
+async def list_workflows(
     submodel_id: uuid.UUID,
-    auth=Depends(require_platform_admin),  # noqa: B008
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> list[SubmodelWorkflow]:
-    await get_submodel(session, submodel_id)
-    rows = (
-        await session.scalars(
-            select(SubmodelWorkflow)
-            .where(SubmodelWorkflow.submodel_id == submodel_id)
-            .order_by(SubmodelWorkflow.created_at.asc())
+) -> list[SubmodelWorkflowRead]:
+    """Every workflow the AI extracted."""
+    await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    rows = await session.scalars(
+        select(SubmodelProcedure)
+        .where(
+            SubmodelProcedure.org_id == context.org_id,
+            SubmodelProcedure.submodel_id == submodel_id,
         )
-    ).all()
-    return list(rows)
+        .order_by(SubmodelProcedure.position.asc())
+    )
+    return [SubmodelWorkflowRead.model_validate(row) for row in rows]
 
 
-# ---------------------------------------------------------------------------
-# Training (admin)
-# ---------------------------------------------------------------------------
-
-
-@router.post(
-    "/admin/{submodel_id}/train",
-    response_model=SubmodelJobRead,
-    status_code=202,
-    summary="Train a submodel (admin)",
+@router.patch(
+    "/{submodel_id}/workflows/{workflow_id}",
+    response_model=SubmodelWorkflowRead,
+    summary="Approve or reject a workflow",
 )
-async def admin_train(
+async def update_workflow(
     submodel_id: uuid.UUID,
+    workflow_id: uuid.UUID,
+    payload: SubmodelWorkflowUpdate,
     request: Request,
-    auth=Depends(require_platform_admin),  # noqa: B008
+    context: OrgContext = Depends(require_org_admin),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> SubmodelJob:
-    sm = await get_submodel(session, submodel_id)
-    storage = build_storage()
-    ai = build_ai_provider()
-    job = await train_submodel(session, submodel=sm, user=auth.user, storage=storage, ai=ai)
+) -> SubmodelWorkflowRead:
+    """Approve a workflow so the submodel may use it, or reject it."""
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    workflow = await session.scalar(
+        select(SubmodelProcedure).where(
+            SubmodelProcedure.id == workflow_id,
+            SubmodelProcedure.org_id == context.org_id,
+            SubmodelProcedure.submodel_id == submodel.id,
+        )
+    )
+    if workflow is None:
+        raise AppError(
+            "Workflow not found.", status_code=404, code="workflow_not_found"
+        )
+    if payload.title is not None:
+        workflow.title = payload.title.strip()
+    if payload.summary is not None:
+        workflow.summary = payload.summary.strip() or None
+    if payload.steps is not None:
+        workflow.steps = [step.model_dump() for step in payload.steps]
+    workflow.status = payload.status
+    # The change is written before the refresh: a refresh reloads the stored
+    # row, so an unflushed change would be lost.
+    await session.flush()
     await audit.record(
         session,
-        action="submodel.trained",
-        actor_user_id=auth.user.id,
-        actor_role="platform_owner",
+        action="submodel.workflow_updated",
+        org_id=context.org_id,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
         resource_type="submodel",
-        resource_id=str(sm.id),
+        resource_id=str(submodel.id),
+        metadata={"workflow_id": str(workflow.id), "status": workflow.status},
         request=request,
     )
+    await session.refresh(workflow)
     await session.commit()
-    return job
-
-
-# ---------------------------------------------------------------------------
-# Test (admin)
-# ---------------------------------------------------------------------------
+    return SubmodelWorkflowRead.model_validate(workflow)
 
 
 @router.post(
-    "/admin/{submodel_id}/test",
-    response_model=SubmodelTestResponse,
-    summary="Test a submodel (admin)",
+    "/{submodel_id}/tests",
+    response_model=SubmodelTestRead,
+    status_code=201,
+    summary="Test the submodel",
 )
-async def admin_test(
+async def create_test(
     submodel_id: uuid.UUID,
-    payload: SubmodelTestRequest,
-    auth=Depends(require_platform_admin),  # noqa: B008
+    payload: SubmodelTestCreate,
+    request: Request,
+    context: OrgContext = Depends(require_org_admin),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> SubmodelTestResponse:
-    sm = await get_submodel(session, submodel_id)
-    ai = build_ai_provider()
-    answer, followed, model = await test_submodel(
-        session, submodel=sm, instruction=payload.instruction, ai=ai
+    ai: AIProvider = Depends(get_ai_provider),  # noqa: B008
+) -> SubmodelTestRead:
+    """Ask the submodel a question and check it knows the answer."""
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
     )
-    await create_job(
-        session, submodel_id=sm.id, kind="test", video_id=None, user=auth.user
+    test = await run_submodel_test(
+        session,
+        org_id=context.org_id,
+        submodel=submodel,
+        question=payload.question.strip(),
+        expected_points=payload.expected_points,
+        ai=ai,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
     )
+    await session.refresh(test)
     await session.commit()
-    return SubmodelTestResponse(
-        submodel_id=sm.id, answer=answer, followed_workflows=followed, model=model
+    return SubmodelTestRead.model_validate(test)
+
+
+@router.get(
+    "/{submodel_id}/tests",
+    response_model=list[SubmodelTestRead],
+    summary="List the test results",
+)
+async def list_tests(
+    submodel_id: uuid.UUID,
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> list[SubmodelTestRead]:
+    """Every test this submodel was put through."""
+    await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    rows = await session.scalars(
+        select(SubmodelTest)
+        .where(
+            SubmodelTest.org_id == context.org_id,
+            SubmodelTest.submodel_id == submodel_id,
+        )
+        .order_by(SubmodelTest.created_at.desc())
+    )
+    return [SubmodelTestRead.model_validate(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Export and install
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{submodel_id}/package",
+    response_model=SubmodelPackageInfo,
+    summary="The package for this submodel",
+)
+async def package_info(
+    submodel_id: uuid.UUID,
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> SubmodelPackageInfo:
+    """The signed package, with the workflows it carries."""
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    workflows = await approved_procedures(
+        session, org_id=context.org_id, submodel_id=submodel.id
+    )
+    payload = build_package(submodel, workflows)
+    from app.services.extension_signing import canonical_json
+
+    digest = hashlib.sha256(canonical_json(payload)).hexdigest()
+    return SubmodelPackageInfo(
+        filename=f"{submodel.slug}-v{submodel.version}.wmsubmodel.json",
+        digest=digest,
+        signing_key_id=submodel.signing_key_id or "",
+        verified=submodel.package_signature is not None,
+        reason=(
+            ""
+            if submodel.package_signature
+            else "This submodel has not been exported yet."
+        ),
+        workflow_count=len(workflows),
+        payload=payload,
     )
 
 
-# ---------------------------------------------------------------------------
-# Jobs (admin)
-# ---------------------------------------------------------------------------
-
-
 @router.get(
-    "/admin/{submodel_id}/jobs",
-    response_model=list[SubmodelJobRead],
-    summary="List jobs (admin)",
+    "/{submodel_id}/download",
+    summary="Download the submodel package",
+    response_class=PlainTextResponse,
 )
-async def admin_list_jobs(
+async def download(
     submodel_id: uuid.UUID,
-    auth=Depends(require_platform_admin),  # noqa: B008
-    session: AsyncSession = Depends(get_session), # noqa: B008
-) -> list[SubmodelJob]:
-    await get_submodel(session, submodel_id)
-    rows = (
-        await session.scalars(
-            select(SubmodelJob)
-            .where(SubmodelJob.submodel_id == submodel_id)
-            .order_by(SubmodelJob.created_at.desc())
-        )
-    ).all()
-    return list(rows)
-
-
-@router.get(
-    "/admin/jobs/{job_id}",
-    response_model=SubmodelJobRead,
-    summary="Read a job (admin)",
-)
-async def admin_get_job(
-    job_id: uuid.UUID,
-    auth=Depends(require_platform_admin),  # noqa: B008
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> SubmodelJob:
-    return await get_job(session, job_id)
+) -> PlainTextResponse:
+    """Download the signed package.
 
-
-# ---------------------------------------------------------------------------
-# Download (admin)
-# ---------------------------------------------------------------------------
-
-
-@router.get(
-    "/admin/{submodel_id}/download",
-    summary="Download a submodel package (admin)",
-)
-async def admin_download(
-    submodel_id: uuid.UUID,
-    auth=Depends(require_platform_admin),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> Response:
-    sm = await get_submodel(session, submodel_id)
-    storage = build_storage()
-    data, filename = await build_download_package(
-        session, submodel=sm, user=auth.user, storage=storage
+    The file carries the workflows, the permission policy and the signature,
+    so it can be installed on another machine and used there on its own.
+    """
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    package = await build_package_document(
+        session, org_id=context.org_id, submodel=submodel
     )
     await audit.record(
         session,
-        action="submodel.downloaded",
-        actor_user_id=auth.user.id,
-        actor_role="platform_owner",
+        action="submodel.exported",
+        org_id=context.org_id,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
         resource_type="submodel",
-        resource_id=str(sm.id),
-        request=None,
+        resource_id=str(submodel.id),
+        metadata={
+            "digest": package.digest,
+            "workflows": len(package.payload.get("workflows") or []),
+        },
     )
     await session.commit()
-    return Response(
-        content=data,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    return PlainTextResponse(
+        package.to_json(),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{package.filename}"'
+        },
     )
-
-
-# ---------------------------------------------------------------------------
-# Install (admin)
-# ---------------------------------------------------------------------------
 
 
 @router.post(
-    "/admin/install",
+    "/import",
     response_model=SubmodelRead,
     status_code=201,
-    summary="Install a submodel package (admin)",
+    summary="Install a submodel package",
 )
-async def admin_install(
-    file: UploadFile = File(...),  # noqa: B008
-    auth=Depends(require_platform_admin),  # noqa: B008
+async def install(
+    request: Request,
+    file: UploadFile = File(...),  # noqa: B008 - FastAPI idiom
+    label: str | None = Form(default=None),  # noqa: B008 - FastAPI idiom
+    context: OrgContext = Depends(require_org_admin),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> SubmodelRead:
-    data = await file.read()
-    if not data:
-        raise AppError("Empty file.", status_code=400, code="empty_file")
-    sm = await install_package(session, data=data, user=auth.user)
-    v, w = await counts(session, sm.id)
-    return _to_read(sm, v, w)
+    """Install a submodel that was trained elsewhere.
+
+    The workflows travel with the package, so the installed copy works here
+    on its own: it does not need the training material again.
+
+    ``label`` says where the package came from, so an administrator can see
+    the provenance later.
+    """
+    await quota.guard_submodel_create(session, context.org_id)
+    raw = await file.read()
+    document = decode_package(raw)
+    verified = verify_package_document(document)
+    if not verified.verified:
+        raise AppError(
+            verified.reason
+            or "This package could not be verified, so it was not installed.",
+            status_code=409,
+            code="submodel_package_unverified",
+        )
+    submodel = await install_submodel(
+        session,
+        org_id=context.org_id,
+        verified=verified,
+        created_by=context.user.id,
+        source_label=label,
+    )
+    await audit.record(
+        session,
+        action="submodel.installed",
+        org_id=context.org_id,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
+        resource_type="submodel",
+        resource_id=str(submodel.id),
+        metadata={
+            "digest": verified.digest,
+            "signing_key_id": verified.signing_key_id,
+            "workflows": len(verified.payload.get("workflows") or []),
+        },
+        request=request,
+    )
+    # The counts are read before the commit: the tenant context is
+    # transaction-local, so a read after it would see no rows.
+    read = await _submodel_read(session, submodel)
+    await session.commit()
+    return read
 
 
 # ---------------------------------------------------------------------------
-# Versions (admin)
+# Using a submodel
 # ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{submodel_id}/guidance",
+    response_model=SubmodelGuidanceResponse,
+    summary="Ask the submodel a question",
+)
+async def guidance(
+    submodel_id: uuid.UUID,
+    payload: SubmodelGuidanceRequest,
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+    ai: AIProvider = Depends(get_ai_provider),  # noqa: B008
+) -> SubmodelGuidanceResponse:
+    """Answer from the workflows the submodel learned.
+
+    This works on an installed copy: the workflows travelled with the
+    package, so nothing else is needed.
+    """
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    answer = await answer_with_submodel(
+        session,
+        org_id=context.org_id,
+        submodel=submodel,
+        question=payload.question,
+        ai=ai,
+        context=payload.context,
+    )
+    await session.commit()
+    return SubmodelGuidanceResponse(
+        submodel_id=submodel.id,
+        task=submodel.task,
+        answer=answer.answer,
+        steps=answer.steps,
+        grounded=answer.grounded,
+        workflows_used=answer.workflows_used,
+        model=answer.model,
+        usage={
+            "prompt_tokens": answer.prompt_tokens,
+            "completion_tokens": answer.completion_tokens,
+        },
+    )
+
+
+@router.post(
+    "/{submodel_id}/actions",
+    response_model=SubmodelActionDecision,
+    status_code=201,
+    summary="Ask whether an action may be performed",
+)
+async def propose_action(
+    submodel_id: uuid.UUID,
+    payload: SubmodelActionPlanCreate,
+    request: Request,
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> SubmodelActionDecision:
+    """Ask the server whether the agent may do this.
+
+    The submodel's own permission policy decides. A sensitive action always
+    needs the user's confirmation, and the plan records who confirmed what.
+    """
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    steps = [step.model_dump() for step in payload.steps]
+    plan, allowed, requires_confirmation, reason = await record_action(
+        session,
+        org_id=context.org_id,
+        submodel=submodel,
+        action_type=payload.action_type,
+        description=payload.description,
+        steps=steps,
+    )
+    await audit.record(
+        session,
+        action="submodel.action_proposed",
+        org_id=context.org_id,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
+        resource_type="submodel",
+        resource_id=str(submodel.id),
+        metadata={
+            "plan_id": str(plan.id),
+            "action_type": plan.action_type,
+            "allowed": allowed,
+            "requires_confirmation": requires_confirmation,
+        },
+        request=request,
+    )
+    await session.commit()
+    return SubmodelActionDecision(
+        plan=SubmodelActionPlanRead.model_validate(plan),
+        allowed=allowed,
+        requires_confirmation=requires_confirmation,
+        reason=reason,
+    )
+
+
+@router.post(
+    "/{submodel_id}/actions/{plan_id}/confirm",
+    response_model=SubmodelActionPlanRead,
+    summary="Record the user's confirmation",
+)
+async def confirm_action(
+    submodel_id: uuid.UUID,
+    plan_id: uuid.UUID,
+    payload: SubmodelActionConfirm,
+    request: Request,
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> SubmodelActionPlanRead:
+    """Record the user's answer about a sensitive action."""
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    plan = await _owned_plan(
+        session,
+        org_id=context.org_id,
+        submodel_id=submodel.id,
+        plan_id=plan_id,
+    )
+    if plan.status == SubmodelActionStatus.executed.value:
+        raise AppError(
+            "This action has already been performed.",
+            status_code=409,
+            code="action_already_executed",
+        )
+    if not payload.confirmed:
+        plan.status = SubmodelActionStatus.rejected.value
+    else:
+        if not plan.requires_confirmation:
+            raise AppError(
+                "This action does not need a confirmation.",
+                status_code=409,
+                code="action_confirmation_not_required",
+            )
+        plan.status = SubmodelActionStatus.confirmed.value
+        plan.confirmed_by = context.user.id
+        plan.confirmed_at = datetime.now(UTC)
+    await session.flush()
+    await audit.record(
+        session,
+        action="submodel.action_confirmed",
+        org_id=context.org_id,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
+        resource_type="submodel",
+        resource_id=str(submodel.id),
+        metadata={"plan_id": str(plan.id), "status": plan.status},
+        request=request,
+    )
+    await session.refresh(plan)
+    await session.commit()
+    return SubmodelActionPlanRead.model_validate(plan)
+
+
+@router.post(
+    "/{submodel_id}/actions/{plan_id}/complete",
+    response_model=SubmodelActionPlanRead,
+    summary="Report that the action ran",
+)
+async def complete_action(
+    submodel_id: uuid.UUID,
+    plan_id: uuid.UUID,
+    payload: SubmodelActionComplete,
+    request: Request,
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> SubmodelActionPlanRead:
+    """Close the action plan with what happened."""
+    submodel = await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    plan = await _owned_plan(
+        session,
+        org_id=context.org_id,
+        submodel_id=submodel.id,
+        plan_id=plan_id,
+    )
+    if plan.status == SubmodelActionStatus.rejected.value:
+        raise AppError(
+            "This action was refused, so it was never performed.",
+            status_code=409,
+            code="action_not_allowed",
+        )
+    if plan.requires_confirmation and plan.status != (
+        SubmodelActionStatus.confirmed.value
+    ):
+        raise AppError(
+            "The user has to confirm this action before it runs.",
+            status_code=409,
+            code="action_confirmation_required",
+        )
+    plan.status = (
+        SubmodelActionStatus.executed.value
+        if payload.succeeded
+        else SubmodelActionStatus.rejected.value
+    )
+    plan.result = dict(payload.result)
+    await session.flush()
+    await audit.record(
+        session,
+        action="submodel.action_completed",
+        org_id=context.org_id,
+        actor_user_id=context.user.id,
+        actor_role=context.role,
+        resource_type="submodel",
+        resource_id=str(submodel.id),
+        metadata={"plan_id": str(plan.id), "status": plan.status},
+        request=request,
+    )
+    await session.refresh(plan)
+    await session.commit()
+    return SubmodelActionPlanRead.model_validate(plan)
 
 
 @router.get(
-    "/admin/{submodel_id}/versions",
-    response_model=list[SubmodelVersionRead],
-    summary="List versions (admin)",
+    "/{submodel_id}/actions",
+    response_model=list[SubmodelActionPlanRead],
+    summary="List the action plans",
 )
-async def admin_list_versions(
+async def list_actions(
     submodel_id: uuid.UUID,
-    auth=Depends(require_platform_admin),  # noqa: B008
+    context: OrgContext = Depends(require_org_member),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> list[SubmodelVersion]:
-    await get_submodel(session, submodel_id)
-    rows = (
-        await session.scalars(
-            select(SubmodelVersion)
-            .where(SubmodelVersion.submodel_id == submodel_id)
-            .order_by(SubmodelVersion.created_at.desc())
+) -> list[SubmodelActionPlanRead]:
+    """Every action this submodel was asked to perform."""
+    await _owned_submodel(
+        session, org_id=context.org_id, submodel_id=submodel_id
+    )
+    rows = await session.scalars(
+        select(SubmodelActionPlan)
+        .where(
+            SubmodelActionPlan.org_id == context.org_id,
+            SubmodelActionPlan.submodel_id == submodel_id,
         )
-    ).all()
-    return [
-        SubmodelVersionRead(
-            id=r.id,
-            submodel_id=r.submodel_id,
-            version=r.version,
-            manifest=r.manifest or {},
-            has_package=bool(r.package_storage_key),
-            created_at=r.created_at,
+        .order_by(SubmodelActionPlan.created_at.desc())
+    )
+    return [SubmodelActionPlanRead.model_validate(row) for row in rows]
+
+
+async def _owned_plan(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID,
+    submodel_id: uuid.UUID,
+    plan_id: uuid.UUID,
+) -> SubmodelActionPlan:
+    plan = await session.scalar(
+        select(SubmodelActionPlan).where(
+            SubmodelActionPlan.id == plan_id,
+            SubmodelActionPlan.org_id == org_id,
+            SubmodelActionPlan.submodel_id == submodel_id,
         )
-        for r in rows
-    ]
+    )
+    if plan is None:
+        raise AppError(
+            "Action plan not found.", status_code=404, code="not_found"
+        )
+    return plan
