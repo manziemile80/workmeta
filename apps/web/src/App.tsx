@@ -16,6 +16,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import { BrandMark } from "./components/BrandMark";
+import { SubmodelsPanel } from "./components/SubmodelsPanel";
 import {
   ApiRequestError,
   cancelSubscription,
@@ -50,7 +51,7 @@ import {
 } from "./lib/api";
 import { cn } from "./lib/cn";
 
-type View = "overview" | "pricing" | "checkout" | "payments" | "platform";
+type View = "overview" | "pricing" | "checkout" | "payments" | "platform" | "submodels";
 
 const LIMIT_ROWS: {
   key: string;
@@ -192,6 +193,7 @@ export function App() {
                 ["checkout", "Checkout"],
                 ["payments", "Payments & usage"],
                 isPlatformAdmin ? ["platform", "Platform admin"] : null,
+                ["submodels", "AI Submodels"],
               ].filter(Boolean) as [View, string][]
             ).map(([key, label]) => (
               <button
@@ -242,27 +244,29 @@ export function App() {
       </header>
 
       <main className="mx-auto max-w-6xl px-5 py-8">
-        {!orgId ? (
+        {!orgId && view !== "submodels" ? (
           <EmptyOrg />
         ) : view === "overview" ? (
-          <Overview orgId={orgId} />
+          <Overview orgId={orgId!} />
         ) : view === "pricing" ? (
           <Pricing
-            orgId={orgId}
+            orgId={orgId!}
             interval={interval}
             setInterval={setInterval}
             onSelect={() => setView("checkout")}
           />
         ) : view === "checkout" ? (
           <CheckoutPanel
-            orgId={orgId}
+            orgId={orgId!}
             interval={interval}
             setInterval={setInterval}
             initialReference={checkoutRef}
             clearReference={() => setCheckoutRef(null)}
           />
-        ) : view === "payments" ? (
+        ) : view === "payments" && orgId ? (
           <PaymentsPanel orgId={orgId} />
+        ) : view === "submodels" ? (
+          <SubmodelsPanel isAdmin={isPlatformAdmin} />
         ) : (
           <PlatformPanel />
         )}

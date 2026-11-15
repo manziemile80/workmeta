@@ -544,3 +544,203 @@ export function formatBytes(bytes: number | null): string {
   );
   return `${(bytes / 1024 ** i).toFixed(1)} ${units[i]}`;
 }
+
+// ---------------------------------------------------------------------------
+// Submodels (admin-controlled AI submodels)
+// ---------------------------------------------------------------------------
+
+export interface Submodel {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  purpose: string | null;
+  status: string;
+  version: number;
+  config: Record<string, unknown>;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+  video_count: number;
+  workflow_count: number;
+}
+
+export interface SubmodelVideo {
+  id: string;
+  submodel_id: string;
+  title: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  status: string;
+  error_message: string | null;
+  duration_seconds: number | null;
+  frame_count: number | null;
+  transcript: string | null;
+  analysis: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface SubmodelWorkflow {
+  id: string;
+  submodel_id: string;
+  source_video_id: string | null;
+  name: string;
+  description: string | null;
+  steps: Array<Record<string, unknown>>;
+  version: number;
+  created_at: string;
+}
+
+export interface SubmodelJob {
+  id: string;
+  submodel_id: string;
+  video_id: string | null;
+  kind: string;
+  status: string;
+  progress: number;
+  message: string | null;
+  error: string | null;
+  result: Record<string, unknown>;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+}
+
+export interface SubmodelVersion {
+  id: string;
+  submodel_id: string;
+  version: number;
+  manifest: Record<string, unknown>;
+  has_package: boolean;
+  created_at: string;
+}
+
+export interface SubmodelTestResponse {
+  submodel_id: string;
+  answer: string;
+  followed_workflows: string[];
+  model: string;
+}
+
+export const listPublishedSubmodels = (): Promise<Submodel[]> =>
+  request<Submodel[]>("/submodels");
+
+export const listAllSubmodels = (): Promise<Submodel[]> =>
+  request<Submodel[]>("/submodels/admin/all");
+
+export const createSubmodel = (body: {
+  name: string;
+  slug?: string;
+  description?: string;
+  purpose?: string;
+  config?: Record<string, unknown>;
+}): Promise<Submodel> =>
+  request<Submodel>("/submodels/admin", { method: "POST", body: JSON.stringify(body) });
+
+export const updateSubmodel = (
+  id: string,
+  body: Record<string, unknown>,
+): Promise<Submodel> =>
+  request<Submodel>(`/submodels/admin/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+
+export const deleteSubmodel = (id: string): Promise<void> =>
+  request<void>(`/submodels/admin/${id}`, { method: "DELETE" });
+
+export const publishSubmodel = (id: string): Promise<Submodel> =>
+  request<Submodel>(`/submodels/admin/${id}/publish`, { method: "POST" });
+
+export const unpublishSubmodel = (id: string): Promise<Submodel> =>
+  request<Submodel>(`/submodels/admin/${id}/unpublish`, { method: "POST" });
+
+export const listSubmodelVideos = (id: string): Promise<SubmodelVideo[]> =>
+  request<SubmodelVideo[]>(`/submodels/admin/${id}/videos`);
+
+export const uploadSubmodelVideo = async (
+  id: string,
+  file: File,
+  title?: string,
+): Promise<SubmodelVideo> => {
+  const form = new FormData();
+  form.append("file", file);
+  if (title) form.append("title", title);
+  const response = await fetch(`${API_BASE_URL}${API_ROOT}/submodels/admin/${id}/videos`, {
+    method: "POST",
+    body: form,
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new ApiRequestError(response.status, "upload_failed", await response.text());
+  }
+  return (await response.json()) as SubmodelVideo;
+};
+
+export const deleteSubmodelVideo = (videoId: string): Promise<void> =>
+  request<void>(`/submodels/admin/videos/${videoId}`, { method: "DELETE" });
+
+export const analyzeSubmodelVideo = (
+  submodelId: string,
+  videoId: string,
+): Promise<SubmodelJob> =>
+  request<SubmodelJob>(`/submodels/admin/${submodelId}/videos/${videoId}/analyze`, {
+    method: "POST",
+  });
+
+export const trainSubmodel = (id: string): Promise<SubmodelJob> =>
+  request<SubmodelJob>(`/submodels/admin/${id}/train`, { method: "POST" });
+
+export const testSubmodel = (
+  id: string,
+  instruction: string,
+): Promise<SubmodelTestResponse> =>
+  request<SubmodelTestResponse>(`/submodels/admin/${id}/test`, {
+    method: "POST",
+    body: JSON.stringify({ instruction }),
+  });
+
+export const listSubmodelJobs = (id: string): Promise<SubmodelJob[]> =>
+  request<SubmodelJob[]>(`/submodels/admin/${id}/jobs`);
+
+export const getSubmodelJob = (jobId: string): Promise<SubmodelJob> =>
+  request<SubmodelJob>(`/submodels/admin/jobs/${jobId}`);
+
+export const listSubmodelWorkflows = (id: string): Promise<SubmodelWorkflow[]> =>
+  request<SubmodelWorkflow[]>(`/submodels/admin/${id}/workflows`);
+
+export const listSubmodelVersions = (id: string): Promise<SubmodelVersion[]> =>
+  request<SubmodelVersion[]>(`/submodels/admin/${id}/versions`);
+
+export const downloadSubmodel = async (id: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}${API_ROOT}/submodels/admin/${id}/download`, {
+    credentials: "include",
+  });
+  if (!response.ok) throw new ApiRequestError(response.status, "download_failed", await response.text());
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "submodel.zip";
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+export const installSubmodel = async (file: File): Promise<Submodel> => {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch(`${API_BASE_URL}${API_ROOT}/submodels/admin/install`, {
+    method: "POST",
+    body: form,
+    credentials: "include",
+  });
+  if (!response.ok) throw new ApiRequestError(response.status, "install_failed", await response.text());
+  return (await response.json()) as Submodel;
+};
+
+export const useSubmodel = (
+  id: string,
+  instruction: string,
+): Promise<SubmodelTestResponse> =>
+  request<SubmodelTestResponse>(`/submodels/${id}/chat`, {
+    method: "POST",
+    body: JSON.stringify({ instruction }),
+  });
