@@ -618,18 +618,19 @@ export function askSubmodelAsAdmin(
 
 // --- Clients (/submodels — published submodels only) ---------------------
 
-export function fetchPublishedSubmodels(): Promise<Submodel[]> {
-  return request<Submodel[]>(`/submodels`);
+export function fetchPublishedSubmodels(orgId: string): Promise<Submodel[]> {
+  return request<Submodel[]>(`/submodels?org_id=${encodeURIComponent(orgId)}`);
 }
 
 export function askSubmodel(
+  orgId: string,
   submodelId: string,
   payload: { question: string; context?: Record<string, unknown> },
 ): Promise<SubmodelGuidance> {
-  return request<SubmodelGuidance>(`/submodels/${submodelId}/guidance`, {
-    method: "POST",
-    body: payload,
-  });
+  return request<SubmodelGuidance>(
+    `/submodels/${submodelId}/guidance?org_id=${encodeURIComponent(orgId)}`,
+    { method: "POST", body: payload },
+  );
 }
 
 // ---------------------------------------------------------------------------

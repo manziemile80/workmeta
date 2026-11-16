@@ -288,7 +288,7 @@ export function App() {
           isPlatformAdmin ? (
             <SubmodelsPanel />
           ) : (
-            <SubmodelCatalog />
+            <SubmodelCatalog orgId={orgId!} />
           )
         ) : (
           <PlatformPanel />

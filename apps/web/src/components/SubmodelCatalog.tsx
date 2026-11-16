@@ -30,12 +30,12 @@ function errorMessage(error: unknown): string {
   return "Something went wrong.";
 }
 
-export function SubmodelCatalog() {
+export function SubmodelCatalog({ orgId }: { orgId: string }) {
   const [selected, setSelected] = useState<string | null>(null);
 
   const catalog = useQuery({
-    queryKey: ["published-submodels"],
-    queryFn: () => fetchPublishedSubmodels(),
+    queryKey: ["published-submodels", orgId],
+    queryFn: () => fetchPublishedSubmodels(orgId),
   });
 
   const current =
@@ -98,19 +98,18 @@ export function SubmodelCatalog() {
         </div>
       )}
 
-      {current ? <AskSubmodel key={current.id} submodel={current} /> : null}
+      {current ? <AskSubmodel key={current.id} orgId={orgId} submodel={current} /> : null}
     </div>
   );
 }
 
-function AskSubmodel({ submodel }: { submodel: Submodel }) {
+function AskSubmodel({ orgId, submodel }: { orgId: string; submodel: Submodel }) {
   const [question, setQuestion] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState<SubmodelGuidance | null>(null);
-
   const ask = useMutation({
     mutationFn: () =>
-      askSubmodel(submodel.id, { question: question.trim() }),
+      askSubmodel(orgId, submodel.id, { question: question.trim() }),
     onSuccess: (result) => {
       setError(null);
       setAnswer(result);
