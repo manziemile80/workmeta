@@ -22,8 +22,8 @@ ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / ".env.example"
 TARGET = ROOT / ".env"
 
-# One signing key is generated for the whole file, so every package it
-# signs belongs to this deployment.
+# One signing key is generated for the whole file, so the agent packages and
+# the submodel packages are signed with the same key.
 _SIGNING_KEY = Ed25519PrivateKey.generate()
 
 

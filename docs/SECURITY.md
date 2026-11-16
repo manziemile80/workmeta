@@ -43,6 +43,19 @@
 - **No card data is stored.** Only provider references, amounts, currency and non-sensitive metadata.
 - Mock provider is refused in production.
 
+## Trained models (WorkMeta AI Submodels)
+
+- **Administrator only.** `submodels`, `submodel_materials`, `submodel_procedures` and `submodel_tests` are platform-owned: no `org_id`, forced RLS with `app_is_platform_admin()`, so a client's token can never read training material, draft workflows, tests or packages — every administrative route answers `403` for clients (`tests/test_submodel_permissions.py` pins it per route). Only a published submodel row and its **approved** workflows are readable by signed-in users, through their own SELECT policies — that is what "published" means. `products` stays global metadata.
+- **Tenant action plans.** `submodel_action_plans` is the one submodel table that belongs to a tenant: it keeps `org_id` with the forced tenant policy (a member sees only their own plans; the administrator can audit across tenants).
+- **No claim before proof.** A submodel's workflows are drafts until a human approves them, and an approval is withdrawn when training changes the steps it approved. The training state is honest (`pending`/`running`/`extracted`/`failed` with `training_error`) and publishing requires an approved workflow plus a passed test; the gates live in the service layer, so they cannot be bypassed by calling the API.
+- **Grounded answers.** The training prompt and the guidance prompt treat the recording and the workflows as untrusted data, never as instructions, and refuse to invent steps that are not in the material.
+- **Signed packages.** The published package is signed with Ed25519 over its canonical JSON (`EXTENSION_SIGNING_PRIVATE_KEY`), and the **workflows themselves** are inside the signature. The public key travels with the package, so a package trained on another machine is verified against the key it carries — and a tampered workflow is refused.
+- **Authorised actions.** A client application asks the server before acting. `auto_actions` run on their own, `confirm_actions` (submitting an application, moving money, deleting a record, sending) require the user's confirmation, `denied_actions` are refused, and a step marked sensitive always forces a confirmation. A refused action is stored as refused and can never be reported as performed.
+- **Least privilege.** The runtime role gets `SELECT/INSERT/UPDATE` on the tables and no `DELETE`: materials are archived, workflows are rejected, tests and action plans stay as history.
+- **No tenant quota on training.** Platform training is not a client's consumption: it records a platform-level audit event (`org_id = None`) and writes no `usage_events`.
+
+See `docs/SUBMODELS.md` for the full model, lifecycle and runtime contract.
+
 ## Secrets and logging
 
 - Secrets come only from environment (`.env`, never committed). `SESSION_SECRET`, DB passwords, `AI_API_KEY`, `FLUTTERWAVE_*` / `PAYSTACK_*` are server-side only and absent from API responses and logs.
@@ -59,4 +72,4 @@
 - No MFA yet (planned). No idle session timeout (absolute TTL only). CSRF not rotated on org switch (full session TTL).
 - Flutterwave webhook hash is static (not body-bound); mitigated by live re-verification but hash rotation is manual.
 - `GET /billing/plans` is unauthenticated by design (public pricing); `/` and `/health` fingerprint version/environment for load balancers.
-- `sentry_dsn` is configured but unused. The signing key signs the branded agent package; without it packages are published unsigned.
+- `sentry_dsn` is configured but unused. The signing key signs the branded agent package and the submodel packages; without it packages are published unsigned.

@@ -15,7 +15,8 @@ one maintainable core, never from forked codebases.
 > re-verification, Dockerfiles, prod Compose + TLS proxy, billing worker,
 > `/metrics`, backup/restore scripts and extended CI (Stage 6) →
 > self-service registration (Stage 9) → the installed MV3 agent (Stage 11) →
-> the trained extensions removed (Stage 13).
+> WorkMeta AI Submodels: models trained by the platform administrator from a
+> video demo of the task (Stage 12) → the trained extensions removed (Stage 13).
 > See [docs/PLAN.md](docs/PLAN.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
@@ -37,7 +38,8 @@ one maintainable core, never from forked codebases.
 | Production hardening | ✅ Stage 6 | Rate limits, TrustedHost, body caps, webhook re-verify, Docker/prod Compose, workers, metrics, backups |
 | Self-service registration | ✅ Stage 9 | Sign-up page, per-client organization, Free plan, live verification |
 | Installed agent | ✅ Stage 11 | One MV3 codebase: signs in and reports the page it may read |
-| Trained extensions removed | ✅ Stage 13 | The extension subsystem is gone |
+| WorkMeta AI Submodels | ✅ Stage 12 | Administrator-only training platform: a video demo becomes a timeline of screens and actions, the workflows are approved and tested, and the model is published for clients or downloaded as a signed package that works on any other computer. Clients only see and use published submodels |
+| Trained extensions removed | ✅ Stage 13 | The extension subsystem is gone; submodels are the only trained model on the platform |
 
 Nothing is simulated in the UI: every value is read from the API.
 
@@ -45,6 +47,9 @@ Stages 4–5 added the real dashboards, streaming, OCR, document deletion,
 billing, subscriptions and platform administration. Stage 6 hardened
 production: see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md),
 [docs/SECURITY.md](docs/SECURITY.md) and [docs/BACKUP.md](docs/BACKUP.md).
+Stage 12 added WorkMeta AI Submodels — models trained by the platform
+administrator from a video demo: see
+[docs/SUBMODELS.md](docs/SUBMODELS.md).
 
 ---
 
@@ -76,7 +81,8 @@ From the repository root:
 # 1. Create .env with strong random secrets (gitignored)
 py -3.12 tools/scripts/generate_env.py
 
-# 1b. Make sure it has a signing key, so the agent packages can be signed
+# 1b. Make sure it has a signing key, so the agent packages and the
+#     submodel packages can be signed
 py -3.12 tools/scripts/generate_signing_key.py --force
 
 # 2. Start PostgreSQL 16 + pgvector
@@ -89,9 +95,9 @@ cd apps/api
 py -3.12 -m venv .venv
 .\.venv\Scripts\python -m pip install -e ".[dev]"
 
-# 3b. Optional: OCR for images and scanned PDFs without installing anything
-#     on the machine (the ONNX engine ships its models)
-.\.venv\Scripts\python -m pip install -e ".[ocr]"
+# 3b. Optional: read training recordings without installing anything on the
+#     machine (PyAV carries the codec libraries, the ONNX engine its models)
+.\.venv\Scripts\python -m pip install -e ".[media]"
 
 # 4. Apply database migrations (from apps/api)
 .\.venv\Scripts\python -m alembic upgrade head
@@ -325,12 +331,15 @@ Copy `.env.example` to `.env` or generate it. Never commit `.env`.
 | `AI_TIMEOUT_SECONDS`, `AI_TEMPERATURE`, `CHAT_MAX_OUTPUT_TOKENS` | Request timeout and default generation limits |
 | `AI_MAX_RETRIES`, `AI_RETRY_BACKOFF_SECONDS`, `AI_RETRY_MAX_BACKOFF_SECONDS` | Transient-failure retries and bounded backoff |
 | `MAX_UPLOAD_BYTES`, `MAX_DOCUMENT_PAGES` | Upload and PDF page limits |
+| `MAX_MEDIA_UPLOAD_BYTES` | How large a training recording may be (the media upload paths only) |
 | `CHUNK_TOKENS`, `CHUNK_OVERLAP_TOKENS` | Ingestion chunking (default 900 / 150) |
 | `RETRIEVAL_TOP_K`, `RETRIEVAL_MIN_SCORE` | Hybrid retrieval breadth and relevance floor |
 | `INGESTION_MAX_ATTEMPTS`, `WORKER_POLL_SECONDS` | Worker retries and idle polling |
 | `STORAGE_BACKEND`, `STORAGE_DIR` | Local files now, S3-compatible later |
-| `OCR_ENGINE` | `none`, `rapidocr`, `tesseract` or `auto` — OCR for images and scanned PDFs |
-| `EXTENSION_SIGNING_PRIVATE_KEY` | Ed25519 key for the agent packages (Stage 5) |
+| `OCR_ENGINE` | `none`, `rapidocr`, `tesseract` or `auto` — OCR for images, scanned PDFs and the frames of a recording |
+| `MEDIA_VIDEO_FRAME_INTERVAL_SECONDS`, `MEDIA_VIDEO_MAX_FRAMES` | How a training recording is sampled |
+| `EXTENSION_SIGNING_PRIVATE_KEY` | Ed25519 key for the agent packages and the submodel packages (Stage 5/12) |
+| `OCR_ENGINE`, `MEDIA_VIDEO_*`, `ANALYSIS_MAX_*` | Reading a video demo and bounding the training |
 | `SEED_OWNER_EMAIL`, `SEED_OWNER_PASSWORD` | First platform owner (Stage 1) |
 | `BILLING_PROVIDER`, `FLUTTERWAVE_*`, `PAYSTACK_*` | Payment gateway (Stage 5, sandbox first) |
 | `ALLOWED_HOSTS`, `MAX_REQUEST_BODY_BYTES`, `RATE_LIMIT_*` | Host/body/rate hardening (Stage 6) |
@@ -349,16 +358,18 @@ workmeta/
 │   │   ├── app/
 │   │   │   ├── api/v1/      auth, orgs, members, invitations, assistants,
 │   │   │   │                documents, conversations, products, audit,
-│   │   │   │                billing, platform, usage, health (metrics)
+│   │   │   │                billing, platform, usage, health (metrics),
+│   │   │   │                submodels (training, tests, package, actions)
 │   │   │   ├── core/        config, security, logging, errors, middleware
 │   │   │   │                (rate limit, body cap, TrustedHost, metrics)
 │   │   │   ├── db/          engine, session, RLS helpers, declarative base
 │   │   │   ├── models/      identity, tenancy, assistants, documents, chat,
-│   │   │   │                billing, usage counters
+│   │   │   │                billing, usage counters, submodels
 │   │   │   ├── prompts/     versioned grounded-answer policy
 │   │   │   ├── schemas/     Pydantic request/response contracts
 │   │   │   ├── services/    auth, storage, AI provider, extraction, retrieval,
-│   │   │   │                billing, payments, quota
+│   │   │   │                billing, payments, quota, submodels,
+│   │   │   │                video analysis, submodel packaging
 │   │   │   └── workers/     ingestion queue worker + billing worker
 │   │   ├── alembic/         migrations (schema, RLS policies, grants)
 │   │   ├── Dockerfile       production API image
@@ -377,6 +388,8 @@ workmeta/
 ├── tools/scripts/           generate_env, seed_owner, backup, restore,
 │                            payment-sandbox validator, extension packaging
 ├── docs/                    PLAN, DEPLOYMENT, SECURITY, BACKUP,
+│                            SUBMODELS (models trained by the platform
+│                            administrator from a video demo),
 │                            AGENT_EXTENSION (the installed agent)
 └── .env.example
 ├── tools/

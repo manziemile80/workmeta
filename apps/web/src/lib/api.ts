@@ -266,6 +266,373 @@ export interface ProcedureStep {
 }
 
 // ---------------------------------------------------------------------------
+// WorkMeta AI Submodels — administrator console and published catalog
+//
+// Two groups of calls, matching the two routers on the API:
+//
+// * the **administrator** calls use `/platform/submodels…`. The backend
+//   requires a platform administrator for every one of them, so a client
+//   who reaches them gets a 403 regardless of what the frontend shows;
+// * **clients** call the `/submodels…` functions, which only ever see
+//   submodels the administrator published.
+// ---------------------------------------------------------------------------
+
+export interface Submodel {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  task: string;
+  system_code: string;
+  system_name: string;
+  system_version: string;
+  target_kind: "web" | "desktop";
+  status: string;
+  training_status: "pending" | "running" | "extracted" | "failed";
+  training_error: string | null;
+  origin: "trained" | "imported";
+  source_label: string | null;
+  source_digest: string | null;
+  permissions: Record<string, unknown>;
+  capabilities: unknown[];
+  version: number;
+  package_signature: string | null;
+  signing_key_id: string | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+  materials_count: number;
+  workflows_count: number;
+  approved_workflows_count: number;
+  tests_count: number;
+  passed_tests_count: number;
+}
+
+export interface SubmodelCreate {
+  name: string;
+  task: string;
+  system_code: string;
+  system_name: string;
+  system_version: string;
+  description?: string | null;
+  target_kind?: "web" | "desktop";
+  permissions?: Record<string, unknown>;
+}
+
+export interface SubmodelMaterial {
+  id: string;
+  submodel_id: string;
+  kind: "video" | "audio" | "document" | "note";
+  title: string;
+  filename: string | null;
+  mime_type: string | null;
+  size_bytes: number;
+  status: string;
+  extracted_text: string | null;
+  extracted_units: number | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface SubmodelWorkflow {
+  id: string;
+  submodel_id: string;
+  title: string;
+  summary: string | null;
+  steps: ProcedureStep[];
+  source_material_ids: string[];
+  confidence: number;
+  status: "draft" | "approved" | "rejected";
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubmodelTest {
+  id: string;
+  submodel_id: string;
+  question: string;
+  expected_points: string[];
+  answer: string | null;
+  covered_points: string[];
+  missed_points: string[];
+  score: number;
+  outcome: "passed" | "failed" | "error";
+  created_at: string;
+}
+
+export interface SubmodelPackage {
+  filename: string;
+  digest: string;
+  signing_key_id: string;
+  verified: boolean;
+  reason: string;
+  workflow_count: number;
+  payload: Record<string, unknown>;
+}
+
+export interface SubmodelTrainingResult {
+  submodel_id: string;
+  training_status: string;
+  workflows: SubmodelWorkflow[];
+  analysed_materials: number;
+  analysed_characters: number;
+  videos: number;
+  screens: number;
+  notes: number;
+  message: string;
+}
+
+export interface SubmodelCapabilities {
+  video_frames: number;
+  frame_interval_seconds: number;
+  analysis_max_characters: number;
+  max_media_upload_bytes: number;
+  signing_configured: boolean;
+  transcription_configured: boolean;
+  submodels_count: number;
+}
+
+export interface SubmodelGuidance {
+  submodel_id: string;
+  task: string;
+  answer: string;
+  steps: ProcedureStep[];
+  grounded: boolean;
+  workflows_used: string[];
+  model: string | null;
+  usage: Record<string, number>;
+}
+
+// --- Administrator only (/platform/submodels) -----------------------------
+
+export function fetchSubmodels(): Promise<Submodel[]> {
+  return request<Submodel[]>(`/platform/submodels`);
+}
+
+export function fetchSubmodelCapabilities(): Promise<SubmodelCapabilities> {
+  return request<SubmodelCapabilities>(`/platform/submodels/capabilities`);
+}
+
+export function createSubmodel(payload: SubmodelCreate): Promise<Submodel> {
+  return request<Submodel>(`/platform/submodels`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function updateSubmodel(
+  submodelId: string,
+  payload: Partial<SubmodelCreate>,
+): Promise<Submodel> {
+  return request<Submodel>(`/platform/submodels/${submodelId}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export function retireSubmodel(submodelId: string): Promise<Submodel> {
+  return request<Submodel>(`/platform/submodels/${submodelId}`, {
+    method: "DELETE",
+  });
+}
+
+export function publishSubmodel(submodelId: string): Promise<Submodel> {
+  return request<Submodel>(`/platform/submodels/${submodelId}/publish`, {
+    method: "POST",
+  });
+}
+
+export function unpublishSubmodel(submodelId: string): Promise<Submodel> {
+  return request<Submodel>(`/platform/submodels/${submodelId}/unpublish`, {
+    method: "POST",
+  });
+}
+
+export function fetchSubmodelMaterials(
+  submodelId: string,
+): Promise<SubmodelMaterial[]> {
+  return request<SubmodelMaterial[]>(
+    `/platform/submodels/${submodelId}/materials`,
+  );
+}
+
+export function addSubmodelMaterialNote(
+  submodelId: string,
+  payload: { title: string; text: string },
+): Promise<SubmodelMaterial> {
+  return request<SubmodelMaterial>(
+    `/platform/submodels/${submodelId}/materials/notes`,
+    { method: "POST", body: payload },
+  );
+}
+
+export function uploadSubmodelMaterial(
+  submodelId: string,
+  file: File,
+  title: string,
+): Promise<SubmodelMaterial> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("title", title);
+  return request<SubmodelMaterial>(
+    `/platform/submodels/${submodelId}/materials/upload`,
+    { method: "POST", body: form },
+  );
+}
+
+export function analyzeSubmodelMaterial(
+  submodelId: string,
+  materialId: string,
+): Promise<SubmodelMaterial> {
+  return request<SubmodelMaterial>(
+    `/platform/submodels/${submodelId}/materials/${materialId}/analyze`,
+    { method: "POST" },
+  );
+}
+
+export function archiveSubmodelMaterial(
+  submodelId: string,
+  materialId: string,
+): Promise<SubmodelMaterial> {
+  return request<SubmodelMaterial>(
+    `/platform/submodels/${submodelId}/materials/${materialId}`,
+    { method: "DELETE" },
+  );
+}
+
+export function trainSubmodel(
+  submodelId: string,
+): Promise<SubmodelTrainingResult> {
+  return request<SubmodelTrainingResult>(
+    `/platform/submodels/${submodelId}/train`,
+    { method: "POST" },
+  );
+}
+
+export function fetchSubmodelWorkflows(
+  submodelId: string,
+): Promise<SubmodelWorkflow[]> {
+  return request<SubmodelWorkflow[]>(
+    `/platform/submodels/${submodelId}/workflows`,
+  );
+}
+
+export function updateSubmodelWorkflow(
+  submodelId: string,
+  workflowId: string,
+  payload: { status: "draft" | "approved" | "rejected" },
+): Promise<SubmodelWorkflow> {
+  return request<SubmodelWorkflow>(
+    `/platform/submodels/${submodelId}/workflows/${workflowId}`,
+    { method: "PATCH", body: payload },
+  );
+}
+
+export function fetchSubmodelTests(submodelId: string): Promise<SubmodelTest[]> {
+  return request<SubmodelTest[]>(`/platform/submodels/${submodelId}/tests`);
+}
+
+export function runSubmodelTest(
+  submodelId: string,
+  payload: { question: string; expected_points: string[] },
+): Promise<SubmodelTest> {
+  return request<SubmodelTest>(`/platform/submodels/${submodelId}/tests`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function fetchSubmodelPackage(
+  submodelId: string,
+): Promise<SubmodelPackage> {
+  return request<SubmodelPackage>(
+    `/platform/submodels/${submodelId}/package`,
+  );
+}
+
+/**
+ * The signed package as a file.
+ *
+ * The download is a plain JSON document, so it is fetched through the normal
+ * request path and turned into a blob the browser can save.
+ */
+export async function downloadSubmodelPackage(
+  submodelId: string,
+): Promise<{ filename: string; content: string }> {
+  const response = await fetch(
+    `${API_BASE_URL}/platform/submodels/${submodelId}/download`,
+    { credentials: "include", headers: { Accept: "application/json" } },
+  );
+  if (!response.ok) {
+    let code = "request_failed";
+    let message = `Request failed with status ${response.status}.`;
+    const parsed = (await response.json().catch(() => null)) as
+      | ErrorEnvelope
+      | null;
+    if (parsed?.error) {
+      code = parsed.error.code ?? code;
+      message = parsed.error.message ?? message;
+    }
+    throw new ApiRequestError(response.status, code, message);
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  return {
+    filename: match?.[1] ?? `submodel-${submodelId}.wmsubmodel.json`,
+    content: await response.text(),
+  };
+}
+
+export function installSubmodel(
+  file: File,
+  label?: string,
+): Promise<Submodel> {
+  const form = new FormData();
+  form.append("file", file);
+  if (label) {
+    form.append("label", label);
+  }
+  return request<Submodel>(`/platform/submodels/import`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+/**
+ * Ask the administrator's own console a question of a submodel.
+ *
+ * The admin panel's "Ask" section answers from the same approved workflows,
+ * but without a tenant context and without consuming a client's AI quota —
+ * this is the platform owner trying the submodel out before publishing it.
+ */
+export function askSubmodelAsAdmin(
+  submodelId: string,
+  payload: { question: string; context?: Record<string, unknown> },
+): Promise<SubmodelGuidance> {
+  return request<SubmodelGuidance>(
+    `/platform/submodels/${submodelId}/guidance`,
+    { method: "POST", body: payload },
+  );
+}
+
+// --- Clients (/submodels — published submodels only) ---------------------
+
+export function fetchPublishedSubmodels(): Promise<Submodel[]> {
+  return request<Submodel[]>(`/submodels`);
+}
+
+export function askSubmodel(
+  submodelId: string,
+  payload: { question: string; context?: Record<string, unknown> },
+): Promise<SubmodelGuidance> {
+  return request<SubmodelGuidance>(`/submodels/${submodelId}/guidance`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Billing
 // ---------------------------------------------------------------------------
 

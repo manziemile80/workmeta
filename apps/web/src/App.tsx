@@ -17,6 +17,8 @@ import {
   UsersRound,
 } from "lucide-react";
 import { BrandMark } from "./components/BrandMark";
+import { SubmodelCatalog } from "./components/SubmodelCatalog";
+import { SubmodelsPanel } from "./components/SubmodelsPanel";
 import {
   ApiRequestError,
   cancelSubscription,
@@ -57,6 +59,7 @@ type View =
   | "pricing"
   | "checkout"
   | "payments"
+  | "submodels"
   | "platform";
 
 const LIMIT_ROWS: {
@@ -206,6 +209,7 @@ export function App() {
                 ["pricing", "Pricing"],
                 ["checkout", "Checkout"],
                 ["payments", "Payments & usage"],
+                ["submodels", "Submodels"],
                 isPlatformAdmin ? ["platform", "Platform admin"] : null,
               ].filter(Boolean) as [View, string][]
             ).map(([key, label]) => (
@@ -278,6 +282,14 @@ export function App() {
           />
         ) : view === "payments" ? (
           <PaymentsPanel orgId={orgId} />
+        ) : view === "submodels" ? (
+          // The same feature, two sides: the platform administrator gets
+          // the training console, everyone else only the published catalog.
+          isPlatformAdmin ? (
+            <SubmodelsPanel />
+          ) : (
+            <SubmodelCatalog />
+          )
         ) : (
           <PlatformPanel />
         )}

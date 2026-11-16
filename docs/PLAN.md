@@ -423,8 +423,8 @@ workmeta/
 
 > The stages below are the original plan. The delivered increments are
 > numbered as in the README (Stages 0–6, then 9 self-service registration,
-> 11 the installed agent, 13 the trained extensions removed); their delivered
-> scope is in sections 14–16 of this document.
+> 11 the installed agent, 12 WorkMeta AI Submodels, 13 the trained extensions
+> removed); their delivered scope is in sections 14–18 of this document.
 
 | Stage | What gets built | Done when | Est. |
 |---|---|---|---|
@@ -659,16 +659,110 @@ The installed agent is the **client-side** agent. See
 
 ---
 
-## 17. Stage 12 delivered scope — WorkMeta AI Submodels (removed)
+## 17. Stage 12/15 delivered scope — WorkMeta AI Submodels
 
-The submodel platform was built as Stage 12 and has since been **removed**
-from the codebase: the router, models, schemas, services, migrations, the
-**Submodels** console tab and the agent's submodel calls are all gone. The
-tables are dropped by migration `20261115_0014`, and the plan's
-`max_submodels` column with it.
+A **submodel** is a trained model for a *task*. The platform administrator
+trains it on a video demo of real work, tests it, and publishes it for clients
+to use — or exports it as a signed package that installs on another computer
+and works there on its own. See `docs/SUBMODELS.md`.
 
-What remains is described in `docs/AGENT_EXTENSION.md` (the installed agent)
-and `docs/SECURITY.md`.
+The feature was originally built per-client (Stage 12, migration
+`20261112_0012`), removed in full (migration `20261115_0014`), and re-issued
+as an **administrator-only platform** (migration `20261116_0015`), which is
+what the codebase serves today:
+
+1. **Data model** — five tables in migration `20261116_0015`: `submodels`,
+   `submodel_materials`, `submodel_procedures`, `submodel_tests` and
+   `submodel_action_plans`. The first four are **platform-owned**: they carry
+   no `org_id`, they are behind forced RLS that allows only
+   `app_is_platform_admin()`, plus a SELECT policy that lets any signed-in
+   user read a **published** submodel and its **approved** workflows — that is
+   what "published" means. `submodel_action_plans` keeps `org_id` with the
+   forced tenant policy, extended so the administrator can audit across
+   tenants. The runtime role gets `SELECT`/`INSERT`/`UPDATE` only — never
+   `DELETE`. There is no tenant quota: platform training records a
+   platform-level audit event (`org_id = None`), not `usage_events`.
+2. **Portable by construction** — a submodel **carries its own workflows**, so
+   it is self-contained: an installed copy works with no training material, no
+   tenant documents and no contact with the machine that trained it.
+   (Stage 13 removed the older trained extensions, whose knowledge was
+   retrieved from the tenant's documents; the submodel is the only trained
+   model on the platform now.)
+3. **Video-based training** — `app/services/media.py` gained a timestamped
+   frame extractor and `app/services/video_analysis.py` turns a recording into
+   a deterministic **timeline**: frames with timestamps → OCR per frame →
+   consecutive similar frames grouped into UI states → transitions between
+   states are the detected actions. The model is then asked to *name* those
+   actions as ordered steps, never to summarise a video. A sensitive step
+   (submits, moves money, deletes, sends) is marked and always needs the
+   user's confirmation. **The demo is read as soon as it is uploaded** — the
+   read runs in the background and the material says ``extracting`` until the
+   timeline is ready, so no request waits on the OCR.
+   Reading a recording needs no system binary: PyAV carries the codec
+   libraries and an ONNX OCR engine carries its models, both in the `media`
+   pip extra (`pip install -e ".[media]"`). The system `ffmpeg` and
+   Tesseract are still used when they are installed.
+4. **Training, approval and testing** — `POST .../train` writes the extracted
+   workflows as **drafts**; a human approves each one; only approved workflows
+   are used and only approved workflows are exported. Tests ask a question and
+   list the points the answer must contain, and pass only when every point is
+   covered. The training state is honest: `pending` → `running` →
+   `extracted` | `failed` (with `training_error`), and nothing is reported as
+   trained before a run actually completed.
+5. **Publishing** — `POST .../publish` requires an unretired submodel with
+   `training_status = "extracted"`, at least one approved workflow and at
+   least one passed test (otherwise `409`), freezes the package manifest,
+   signature and signing key, and bumps `version` on every (re)publish.
+   `unpublish` returns it to `trained` and clients stop seeing it immediately.
+6. **Signed, portable packages** — the package is a single JSON file
+   (`workmeta.submodel-package/1`) signed with Ed25519 over the canonical JSON
+   of the payload, so the **workflows themselves** are covered by the
+   signature, not just the metadata. The signing key id and the public key
+   travel with the package. Importing verifies the signature and refuses a
+   package that was changed after it was signed (`409
+   submodel_package_unverified`). An imported submodel is re-signed locally and
+   keeps `source_label` / `source_digest` for provenance.
+7. **Practical execution** — a client application proposes an action and the
+   server answers under the submodel's own permission policy. A sensitive
+   action needs the user's explicit confirmation, and a **refused** action is
+   stored as `rejected` and can never be reported as performed (`409
+   action_not_allowed`). Guidance answers only from the approved workflows and
+   treats both the workflows and the page context as untrusted data.
+8. **Two routers, two audiences** — every `/platform/submodels` route depends
+   on `require_platform_admin` (create, upload, analyze, train, approve, test,
+   publish, unpublish, import, download, audit); every `/submodels` route
+   depends on `require_org_member` and only ever sees published submodels
+   (catalog, guidance, propose/confirm/complete action). `403` for a client
+   who guesses an admin path, `404` for an unpublished submodel.
+9. **Console** — a **Submodels** tab in the web console, shown only with
+   `is_platform_admin`: create, install a package, add material, read a
+   recording, train, approve, test, publish/unpublish, ask and download.
+   Signed-in non-admins get the **catalog**: published submodels and a
+   question box. Everything both sides show is read from the API; nothing is
+   simulated.
+10. **Uploading a recording** — a training video is far larger than a
+    document, so the media upload path gets its own body limit
+    (`MAX_MEDIA_UPLOAD_BYTES`) while every other route keeps the small cap,
+    and the proxies allow a large body and a long timeout on
+    `/api/v1/platform/submodels/.../materials/upload` only (the other admin
+    submodel routes get the longer timeout, not the larger body).
+11. **Tests** — 30 database-free unit tests (`tests/test_submodel_unit.py`)
+    covering the permission policy, the frame→state→transition timeline, the
+    parsing of the model's answer, the withdrawal of an approval when the
+    steps change, and the signature verification (including a package signed
+    with another key and a tampered package); 4 more
+    (`tests/test_submodel_media.py`) that read a real recording into a
+    timeline with nothing installed on the machine; route-order and
+    permission tests (`tests/test_route_order.py`,
+    `tests/test_submodel_permissions.py`) that pin every admin route to
+    `require_platform_admin` and keep admin functionality off the client
+    router; and integration tests (`tests/test_submodel_integration.py`)
+    covering the full lifecycle, clients-only-see-published (including
+    unpublish/republish), the `403`/`401` matrix for every admin route, an
+    installed copy working on its own, a tampered package being refused, the
+    denied-action guarantee, the confirmation requirement, cross-tenant plan
+    isolation with administrator audit, and **training a submodel from a real
+    recording**.
 
 ---
 
@@ -689,12 +783,12 @@ The trained extensions (the original Stage 10) are gone.
    migration that created the tables, so the two can never drift. The
    downgrade restores the schema (not the rows). The shared signing key
    (`EXTENSION_SIGNING_PRIVATE_KEY`) stays: it signs the branded agent
-   configuration.
+   configuration and the submodel packages.
 3. **Console** — the **Extensions** tab is removed from the web console.
 4. **The installed agent** — page recognition, the per-system guidance and the
    agent-package manifest handling are removed from the MV3 code.
 
-Later, the submodel platform that replaced the extensions (Stage 12) was also
-removed — see section 17.
+The submodel platform that replaced the extensions (Stage 12) was later
+removed and re-issued as an administrator-only platform — see section 17.
 
 

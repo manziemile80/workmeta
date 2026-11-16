@@ -18,6 +18,7 @@ from app.api.v1 import (
     organizations,
     platform,
     products,
+    submodels,
     usage,
 )
 from app.api.v1 import audit as audit_routes
@@ -39,3 +40,8 @@ api_router.include_router(usage.assistant_router)
 api_router.include_router(billing.router)
 api_router.include_router(billing.org_router)
 api_router.include_router(platform.router)
+# Submodels: the administrator's router (platform-wide, admin-only) and the
+# client's router (published submodels only). Registered after the literal
+# routes of the platform router so no path parameter shadows them.
+api_router.include_router(submodels.admin_router)
+api_router.include_router(submodels.router)

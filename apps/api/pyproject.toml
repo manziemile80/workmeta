@@ -44,6 +44,15 @@ ocr = [
   "pillow>=11,<14",
   "rapidocr-onnxruntime>=1.4,<2",
 ]
+# Reading a screen recording and the text on its frames, with nothing to
+# install on the machine: PyAV carries the codec libraries and the ONNX OCR
+# engine carries its models. This is the extra a deployment needs to analyse
+# demonstration videos; see docs/SUBMODELS.md.
+media = [
+  "av>=14,<20",
+  "pillow>=11,<14",
+  "rapidocr-onnxruntime>=1.4,<2",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

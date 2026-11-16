@@ -100,6 +100,11 @@ class Settings(BaseSettings):
     database_command_timeout_seconds: int = 30
     database_probe_timeout_seconds: int = 5
 
+    # A training recording is much larger than a document, so the media
+    # upload paths get their own limit. The body-limit middleware applies it
+    # to those paths only, so every other route keeps the small cap.
+    max_media_upload_bytes: int = 256 * 1024 * 1024
+
     # Sessions (used from Stage 1 onward)
     session_secret: str = ""
     session_ttl_days: int = 7
@@ -126,6 +131,9 @@ class Settings(BaseSettings):
         "gpt-4.1",
         "gpt-4o-mini",
     ]
+    # Speech-to-text for audio training instructions. Empty means the
+    # deployment cannot transcribe audio and says so instead of guessing.
+    ai_transcription_model: str = ""
 
     # Estimated provider pricing in USD per million tokens. These are estimates
     # for reporting only; invoices always come from the provider.
@@ -158,8 +166,9 @@ class Settings(BaseSettings):
     # "rapidocr" needs nothing installed on the machine, "tesseract" needs the
     # Tesseract binary, and "auto" takes whichever is installed.
     # "auto" picks the best engine this machine has: Tesseract when it is
-    # installed, else the ONNX engine that ships in the "ocr" pip extra.
-    # "none" turns OCR off, and an image is then read without its text.
+    # installed, else the ONNX engine that ships in the "media" pip extra.
+    # "none" turns OCR off, and an image or a recording is then read without
+    # its text.
     ocr_engine: Literal["none", "tesseract", "rapidocr", "auto"] = "auto"
     ocr_language: str = "eng"
     ocr_timeout_seconds: int = 30
@@ -193,9 +202,18 @@ class Settings(BaseSettings):
     storage_backend: Literal["local", "s3"] = "local"
     storage_dir: str = "./var/storage"
 
-    # Signing of the packages that leave this deployment (the branded agent).
+    # Signing of the packages that leave this deployment: the branded agent
+    # (the browser extension) and the submodel packages. One key signs both.
     extension_signing_key_id: str = "dev-1"
     extension_signing_private_key: str = ""
+
+    # Training media. A screen recording is sampled into still frames and the
+    # text on them is read; the analysis input is bounded so a long recording
+    # cannot blow the context window.
+    media_video_frame_interval_seconds: float = 5.0
+    media_video_max_frames: int = 60
+    analysis_max_characters: int = 120_000
+    analysis_max_output_tokens: int = 6_000
 
     # First-run owner
     seed_owner_email: str = ""
@@ -270,6 +288,40 @@ class Settings(BaseSettings):
     def _valid_output_tokens(cls, value: int) -> int:
         if not 1 <= value <= 8192:
             raise ValueError("chat_max_output_tokens must be between 1 and 8192")
+        return value
+
+    @field_validator("analysis_max_output_tokens")
+    @classmethod
+    def _valid_analysis_tokens(cls, value: int) -> int:
+        if not 256 <= value <= 32_000:
+            raise ValueError(
+                "analysis_max_output_tokens must be between 256 and 32000"
+            )
+        return value
+
+    @field_validator("analysis_max_characters")
+    @classmethod
+    def _valid_analysis_characters(cls, value: int) -> int:
+        if not 1_000 <= value <= 1_000_000:
+            raise ValueError(
+                "analysis_max_characters must be between 1000 and 1000000"
+            )
+        return value
+
+    @field_validator("media_video_frame_interval_seconds")
+    @classmethod
+    def _valid_frame_interval(cls, value: float) -> float:
+        if not 0.5 <= value <= 300:
+            raise ValueError(
+                "media_video_frame_interval_seconds must be between 0.5 and 300"
+            )
+        return value
+
+    @field_validator("media_video_max_frames")
+    @classmethod
+    def _valid_frame_count(cls, value: int) -> int:
+        if not 1 <= value <= 600:
+            raise ValueError("media_video_max_frames must be between 1 and 600")
         return value
 
     @field_validator("ai_temperature")
