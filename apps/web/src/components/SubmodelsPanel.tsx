@@ -82,7 +82,16 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
+  if (error instanceof Error) {
+    const msg = error.message;
+    if (
+      msg === "An unexpected error occurred. Please contact support." ||
+      msg.toLowerCase().includes("internal_error")
+    ) {
+      return "We could not load the submodels right now. Please try again in a moment.";
+    }
+    return msg;
+  }
   return "Something went wrong. Please try again.";
 }
 

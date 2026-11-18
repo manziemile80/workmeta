@@ -26,8 +26,17 @@ import {
 import { cn } from "../lib/cn";
 
 function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return "Something went wrong.";
+  if (error instanceof Error) {
+    const msg = error.message;
+    if (
+      msg === "An unexpected error occurred. Please contact support." ||
+      msg.toLowerCase().includes("internal_error")
+    ) {
+      return "We could not load the published submodels right now. Please try again in a moment.";
+    }
+    return msg;
+  }
+  return "Something went wrong. Please try again.";
 }
 
 export function SubmodelCatalog({ orgId }: { orgId: string | null }) {
@@ -60,10 +69,19 @@ export function SubmodelCatalog({ orgId }: { orgId: string | null }) {
           Loading submodels…
         </p>
       ) : catalog.isError ? (
-        <p className="rounded-xl bg-danger-500/10 px-4 py-3 text-sm text-danger-500">
-          <AlertTriangle className="mr-2 inline h-4 w-4" aria-hidden="true" />
-          {errorMessage(catalog.error)}
-        </p>
+        <div className="rounded-xl bg-danger-500/10 px-4 py-3 text-sm text-danger-500">
+          <p>
+            <AlertTriangle className="mr-2 inline h-4 w-4" aria-hidden="true" />
+            {errorMessage(catalog.error)}
+          </p>
+          <button
+            type="button"
+            onClick={() => void catalog.refetch()}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-danger-500/40 px-3 py-1 text-xs font-semibold text-danger-500 hover:bg-danger-500/10"
+          >
+            Try again
+          </button>
+        </div>
       ) : (catalog.data?.length ?? 0) === 0 ? (
         <p className="rounded-2xl bg-white p-6 text-sm text-ink-500 shadow-card ring-1 ring-mist-200">
           No submodel has been published yet. When the administrator
