@@ -28,7 +28,7 @@ services:
     dockerfilePath: apps/api/Dockerfile
     # Health endpoint (liveness, no DB dependency for the check itself).
     healthCheckPath: /api/v1/health
-    autoDeploy: false
+    autoDeploy: true
     envVars:
       # Secrets live in the dashboard, never in this file.
       - key: APP_ENV
