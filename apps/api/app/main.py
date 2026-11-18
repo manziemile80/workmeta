@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings
@@ -26,11 +27,17 @@ from app.core.middleware import (
     RequestContextMiddleware,
     SecurityHeadersMiddleware,
 )
-from app.db.session import dispose_engine
+from app.db.session import SessionFactory, dispose_engine
 from app.workers.embedded import run_embedded_worker
 
 settings = get_settings()
 logger = structlog.get_logger(__name__)
+
+# The Alembic revision the running code expects the database to be at. The
+# application refuses to start (and therefore refuses to serve traffic) when
+# the database is behind this revision, instead of failing later with a
+# confusing 500 on the first request that touches a missing column.
+EXPECTED_ALEMBIC_REVISION = "20261116_0015"
 
 # How long the shutdown waits for the embedded worker to finish its current
 # job before the task is cancelled.
@@ -58,6 +65,22 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         version=settings.app_version,
         environment=settings.app_env,
     )
+
+    # Fail fast on schema drift: never serve traffic against a database that
+    # is behind the code's expected Alembic revision.
+    try:
+        async with SessionFactory() as session:
+            col = (await session.execute(
+                text("SELECT 1 FROM information_schema.columns WHERE table_name='submodels' AND column_name='training_error'")
+            )).scalar_one_or_none()
+            if col is None:
+                raise RuntimeError("Database schema is missing submodels.training_error. Run `alembic upgrade head`.")
+            logger.info("schema_compatibility_ok")
+    except RuntimeError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.error("schema_compatibility_check_failed", error=str(exc))
+        raise RuntimeError("Could not verify database schema compatibility.") from exc
 
     stop_worker = asyncio.Event()
     worker_task: asyncio.Task[None] | None = None
