@@ -30,12 +30,13 @@ function errorMessage(error: unknown): string {
   return "Something went wrong.";
 }
 
-export function SubmodelCatalog({ orgId }: { orgId: string }) {
+export function SubmodelCatalog({ orgId }: { orgId: string | null }) {
   const [selected, setSelected] = useState<string | null>(null);
 
   const catalog = useQuery({
     queryKey: ["published-submodels", orgId],
-    queryFn: () => fetchPublishedSubmodels(orgId),
+    queryFn: () => fetchPublishedSubmodels(orgId as string),
+    enabled: !!orgId,
   });
 
   const current =
@@ -63,14 +64,14 @@ export function SubmodelCatalog({ orgId }: { orgId: string }) {
           <AlertTriangle className="mr-2 inline h-4 w-4" aria-hidden="true" />
           {errorMessage(catalog.error)}
         </p>
-      ) : catalog.data.length === 0 ? (
+      ) : (catalog.data?.length ?? 0) === 0 ? (
         <p className="rounded-2xl bg-white p-6 text-sm text-ink-500 shadow-card ring-1 ring-mist-200">
           No submodel has been published yet. When the administrator
           publishes one, it appears here.
         </p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {catalog.data.map((submodel) => (
+          {(catalog.data ?? []).map((submodel) => (
             <button
               key={submodel.id}
               type="button"
@@ -98,7 +99,7 @@ export function SubmodelCatalog({ orgId }: { orgId: string }) {
         </div>
       )}
 
-      {current ? <AskSubmodel key={current.id} orgId={orgId} submodel={current} /> : null}
+      {current && orgId ? <AskSubmodel key={current.id} orgId={orgId} submodel={current} /> : null}
     </div>
   );
 }

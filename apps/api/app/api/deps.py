@@ -147,10 +147,21 @@ async def require_platform_admin(
 
 async def get_org_context(
     request: Request,
-    org_id: uuid.UUID,
+    org_id: uuid.UUID | None = None,
     auth: AuthContext = Depends(get_auth_context),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> OrgContext:
+    # Allow callers that do not put the organization in the URL (for example
+    # the published-submodel catalog) to fall back to the organization bound
+    # to the authenticated session.
+    if org_id is None:
+        org_id = auth.org_id
+    if org_id is None:
+        raise AppError(
+            "An organization is required.",
+            status_code=400,
+            code="org_required",
+        )
     # Scope the transaction to the tenant *before* reading tenant tables.
     await set_rls_context(session, org_id=org_id, user_id=auth.user.id)
 

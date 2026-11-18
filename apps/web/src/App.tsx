@@ -209,7 +209,7 @@ export function App() {
                 ["pricing", "Pricing"],
                 ["checkout", "Checkout"],
                 ["payments", "Payments & usage"],
-                ["submodels", "Submodels"],
+                ["submodels", "Train AI"],
                 isPlatformAdmin ? ["platform", "Platform admin"] : null,
               ].filter(Boolean) as [View, string][]
             ).map(([key, label]) => (
@@ -288,7 +288,7 @@ export function App() {
           isPlatformAdmin ? (
             <SubmodelsPanel />
           ) : (
-            <SubmodelCatalog orgId={orgId!} />
+            <SubmodelCatalog orgId={orgId} />
           )
         ) : (
           <PlatformPanel />

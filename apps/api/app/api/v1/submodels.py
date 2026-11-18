@@ -325,8 +325,9 @@ async def update(
     # row, so an unflushed change would be lost.
     await session.flush()
     await session.refresh(submodel)
+    read = await _submodel_read(session, submodel)
     await session.commit()
-    return await _submodel_read(session, submodel)
+    return read
 
 
 @admin_router.post(
@@ -409,8 +410,9 @@ async def retire(
     )
     await session.flush()
     await session.refresh(submodel)
+    read = await _submodel_read(session, submodel)
     await session.commit()
-    return await _submodel_read(session, submodel)
+    return read
 
 
 @admin_router.post(
@@ -504,8 +506,9 @@ async def publish(
     )
     await session.flush()
     await session.refresh(submodel)
+    read = await _submodel_read(session, submodel)
     await session.commit()
-    return await _submodel_read(session, submodel)
+    return read
 
 
 @admin_router.post(
@@ -542,8 +545,9 @@ async def unpublish(
     )
     await session.flush()
     await session.refresh(submodel)
+    read = await _submodel_read(session, submodel)
     await session.commit()
-    return await _submodel_read(session, submodel)
+    return read
 
 
 # ---------------------------------------------------------------------------
@@ -625,9 +629,9 @@ async def add_note(
         metadata={"material_id": str(material.id), "kind": material.kind},
     )
     await session.refresh(material)
+    read = SubmodelMaterialRead.model_validate(material)
     await session.commit()
-    return SubmodelMaterialRead.model_validate(material)
-
+    return read
 
 @admin_router.post(
     "/{submodel_id}/materials/upload",
@@ -709,6 +713,8 @@ async def upload_material(
     # The analysis runs after the response: it decodes frames and reads text
     # on each, which takes a while on a small machine. A failure is reported
     # on the material, not as a lost upload.
+    await session.refresh(material)
+    read = SubmodelMaterialRead.model_validate(material)
     await session.commit()
     background_tasks.add_task(
         analyze_material_in_background,
@@ -716,7 +722,7 @@ async def upload_material(
         actor_user_id=auth.user.id,
         storage=storage,
     )
-    return SubmodelMaterialRead.model_validate(material)
+    return read
 
 
 def _material_key(submodel_id: uuid.UUID) -> str:
@@ -854,6 +860,8 @@ async def analyze_material(
 
     material.status = "extracting"
     material.error_message = None
+    await session.refresh(material)
+    read = SubmodelMaterialRead.model_validate(material)
     await session.commit()
     background_tasks.add_task(
         analyze_material_in_background,
@@ -861,7 +869,7 @@ async def analyze_material(
         actor_user_id=auth.user.id,
         storage=storage,
     )
-    return SubmodelMaterialRead.model_validate(material)
+    return read
 
 
 @admin_router.delete(
@@ -892,9 +900,9 @@ async def archive_material(
     )
     await session.flush()
     await session.refresh(material)
+    read = SubmodelMaterialRead.model_validate(material)
     await session.commit()
-    return SubmodelMaterialRead.model_validate(material)
-
+    return read
 
 # ---------------------------------------------------------------------------
 # Training, workflows and tests — administrator only
@@ -1068,8 +1076,9 @@ async def update_workflow(
         metadata={"workflow_id": str(workflow.id), "status": workflow.status},
     )
     await session.refresh(workflow)
+    read = SubmodelWorkflowRead.model_validate(workflow)
     await session.commit()
-    return SubmodelWorkflowRead.model_validate(workflow)
+    return read
 
 
 @admin_router.post(
@@ -1098,8 +1107,9 @@ async def create_test(
         actor_role=PLATFORM_OWNER_ROLE,
     )
     await session.refresh(test)
+    read = SubmodelTestRead.model_validate(test)
     await session.commit()
-    return SubmodelTestRead.model_validate(test)
+    return read
 
 
 @admin_router.get(
@@ -1268,8 +1278,7 @@ async def admin_guidance(
         action="submodel.guidance",
         metadata={"question": payload.question[:500]},
     )
-    await session.commit()
-    return SubmodelGuidanceResponse(
+    response = SubmodelGuidanceResponse(
         submodel_id=submodel.id,
         task=submodel.task,
         answer=answer.answer,
@@ -1282,6 +1291,8 @@ async def admin_guidance(
             "completion_tokens": answer.completion_tokens,
         },
     )
+    await session.commit()
+    return response
 
 
 # ===========================================================================
@@ -1348,8 +1359,7 @@ async def guidance(
         ai=ai,
         context=payload.context,
     )
-    await session.commit()
-    return SubmodelGuidanceResponse(
+    response = SubmodelGuidanceResponse(
         submodel_id=submodel.id,
         task=submodel.task,
         answer=answer.answer,
@@ -1362,6 +1372,8 @@ async def guidance(
             "completion_tokens": answer.completion_tokens,
         },
     )
+    await session.commit()
+    return response
 
 
 @router.post(
@@ -1410,13 +1422,14 @@ async def propose_action(
         },
         request=request,
     )
-    await session.commit()
-    return SubmodelActionDecision(
+    decision = SubmodelActionDecision(
         plan=SubmodelActionPlanRead.model_validate(plan),
         allowed=allowed,
         requires_confirmation=requires_confirmation,
         reason=reason,
     )
+    await session.commit()
+    return decision
 
 
 @router.post(
@@ -1470,8 +1483,9 @@ async def confirm_action(
         request=request,
     )
     await session.refresh(plan)
+    read = SubmodelActionPlanRead.model_validate(plan)
     await session.commit()
-    return SubmodelActionPlanRead.model_validate(plan)
+    return read
 
 
 @router.post(
@@ -1531,8 +1545,9 @@ async def complete_action(
         request=request,
     )
     await session.refresh(plan)
+    read = SubmodelActionPlanRead.model_validate(plan)
     await session.commit()
-    return SubmodelActionPlanRead.model_validate(plan)
+    return read
 
 
 @router.get(
