@@ -71,10 +71,16 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     try:
         async with SessionFactory() as session:
             col = (await session.execute(
-                text("SELECT 1 FROM information_schema.columns WHERE table_name='submodels' AND column_name='training_error'")
+                text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name='submodels' AND column_name='training_error'"
+                )
             )).scalar_one_or_none()
             if col is None:
-                raise RuntimeError("Database schema is missing submodels.training_error. Run `alembic upgrade head`.")
+                raise RuntimeError(
+                    "Database schema is missing submodels.training_error. "
+                    "Run `alembic upgrade head`."
+                )
             logger.info("schema_compatibility_ok")
     except RuntimeError:
         raise
