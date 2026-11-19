@@ -187,24 +187,62 @@ export function App() {
   const isPlatformAdmin = session.user.is_platform_admin;
 
   return (
-    <div className="min-h-screen bg-mist-50">
-      <header className="border-b border-mist-200 bg-white/80 sticky top-0 z-10 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-5 py-3">
-          <div className="flex items-center gap-3">
-            <BrandMark className="h-9 w-9" />
-            <div>
-              <p className="text-sm font-semibold tracking-tight text-ink-900">
-                WorkMeta AI
-              </p>
-              <p className="text-[11px] uppercase tracking-wider text-teal-700">
-                Billing &amp; subscriptions
-              </p>
-            </div>
+    <div className="min-h-screen bg-mist-50 flex">
+      <aside className="hidden md:flex w-56 shrink-0 flex-col border-r border-mist-200 bg-white">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-mist-200">
+          <BrandMark className="h-9 w-9" />
+          <div>
+            <p className="text-sm font-semibold tracking-tight text-ink-900">
+              WorkMeta AI
+            </p>
+            <p className="text-[11px] uppercase tracking-wider text-teal-700">
+              AI platform
+            </p>
           </div>
-
-          {/* Top navigation removed per request. */}
-
-          <div className="ml-auto flex items-center gap-2">
+        </div>
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+          {[
+            ["overview", "Dashboard"],
+            ["payments", "Payments & usage"],
+            ["submodels", "Train AI"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setView(key as View)}
+              className={cn(
+                "w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition",
+                view === key
+                  ? "bg-navy-900 text-white"
+                  : "text-ink-700 hover:bg-mist-100",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+          {isPlatformAdmin ? (
+            <button
+              type="button"
+              onClick={() => setView("platform")}
+              className={cn(
+                "w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition",
+                view === "platform"
+                  ? "bg-navy-900 text-white"
+                  : "text-ink-700 hover:bg-mist-100",
+              )}
+            >
+              Platform admin
+            </button>
+          ) : null}
+        </nav>
+        <div className="border-t border-mist-200 px-5 py-3 text-xs text-ink-400">
+          {session.user.email}
+        </div>
+      </aside>
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="border-b border-mist-200 bg-white/80 sticky top-0 z-10 backdrop-blur">
+          <div className="flex flex-wrap items-center gap-3 px-5 py-3">
+            <div className="ml-auto flex items-center gap-2">
             {session.memberships.length > 1 ? (
               <OrgSwitcher
                 session={session}
@@ -285,7 +323,8 @@ export function App() {
           )}
         </footer>
       </main>
-    </div>
+        </div>
+      </div>
   );
 }
 
