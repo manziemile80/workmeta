@@ -202,32 +202,7 @@ export function App() {
             </div>
           </div>
 
-          <nav className="ml-2 flex flex-wrap items-center gap-1">
-            {(
-              [
-                ["overview", "Overview"],
-                ["pricing", "Pricing"],
-                ["checkout", "Checkout"],
-                ["payments", "Payments & usage"],
-                ["submodels", "Train AI"],
-                isPlatformAdmin ? ["platform", "Platform admin"] : null,
-              ].filter(Boolean) as [View, string][]
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setView(key)}
-                className={cn(
-                  "rounded-full px-3.5 py-1.5 text-sm font-medium transition",
-                  view === key
-                    ? "bg-navy-900 text-white"
-                    : "text-ink-700 hover:bg-mist-100",
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
+          {/* Top navigation removed per request. */}
 
           <div className="ml-auto flex items-center gap-2">
             {session.memberships.length > 1 ? (
