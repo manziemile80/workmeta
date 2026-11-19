@@ -1310,8 +1310,17 @@ async def catalog(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> list[SubmodelRead]:
     """Only what the administrator has published."""
-    rows = await list_submodels(session, published_only=True)
-    return [await _submodel_read(session, row) for row in rows]
+    try:
+        rows = await list_submodels(session, published_only=True)
+        return [await _submodel_read(session, row) for row in rows]
+    except Exception as exc:  # noqa: BLE001 - temporary diagnostic
+        from app.core.errors import AppError
+
+        raise AppError(
+            f"DEBUG: {type(exc).__name__}: {str(exc)[:400]}",
+            status_code=500,
+            code="submodels_debug",
+        ) from exc
 
 
 @router.get(
