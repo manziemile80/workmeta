@@ -19,12 +19,48 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $apiDir   = Join-Path $repoRoot "apps\api"
-$python   = Join-Path $apiDir ".venv\Scripts\python.exe"
 
-if (-not (Test-Path $python)) {
-    Write-Host "Python venv not found at $python" -ForegroundColor Red
-    exit 1
+# Candidate Python locations, in preference order.
+$candidates = @(
+    (Join-Path $apiDir ".venv\Scripts\python.exe"),
+    (Join-Path $apiDir "venv\Scripts\python.exe"),
+    (Join-Path $repoRoot ".venv\Scripts\python.exe")
+)
+
+$python = $null
+foreach ($c in $candidates) {
+    if (Test-Path $c) {
+        # Verify it has alembic + sqlalchemy
+        $check = & $c -c "import alembic, sqlalchemy; print('ok')" 2>$null
+        if ($check -eq 'ok') { $python = $c; break }
+    }
 }
+
+# Fall back to a system Python that has the deps
+if (-not $python) {
+    $sys = Get-Command python -ErrorAction SilentlyContinue
+    if ($sys) {
+        $check = & $sys.Source -c "import alembic, sqlalchemy; print('ok')" 2>$null
+        if ($check -eq 'ok') { $python = $sys.Source }
+    }
+}
+
+# If nothing suitable exists, create apps/api/.venv and install deps
+if (-not $python) {
+    Write-Host "No suitable Python environment found. Creating apps/api/.venv..." -ForegroundColor Yellow
+    $basePython = (Get-Command python).Source
+    & $basePython -m venv (Join-Path $apiDir ".venv")
+    $python = Join-Path $apiDir ".venv\Scripts\python.exe"
+    & $python -m pip install --upgrade pip
+    & $python -m pip install -e $apiDir
+    $check = & $python -c "import alembic, sqlalchemy; print('ok')" 2>$null
+    if ($check -ne 'ok') {
+        Write-Host "Failed to install dependencies." -ForegroundColor Red
+        exit 1
+    }
+}
+
+Write-Host "Using Python: $python" -ForegroundColor DarkGray
 
 # --- Prompt for the production migration URL (hidden input) ---
 $secure = Read-Host -Prompt "Paste production DATABASE_MIGRATION_URL" -AsSecureString
